@@ -67,6 +67,36 @@ function toSampleHourIso(now = new Date()): string {
   return date.toISOString();
 }
 
+function parseMidgardTimestampToIso(value: unknown): string {
+  const nowIso = new Date().toISOString();
+
+  const numeric = Number(value);
+  if (Number.isFinite(numeric) && numeric > 0) {
+    let millis = 0;
+
+    // Midgard churn date is typically a unix timestamp in nanoseconds.
+    if (numeric > 1e15) {
+      millis = Math.trunc(numeric / 1e6);
+    } else if (numeric > 1e12) {
+      millis = Math.trunc(numeric);
+    } else {
+      millis = Math.trunc(numeric * 1000);
+    }
+
+    const fromNumeric = new Date(millis);
+    if (Number.isFinite(fromNumeric.getTime())) {
+      return fromNumeric.toISOString();
+    }
+  }
+
+  const fromString = new Date(String(value || ''));
+  if (Number.isFinite(fromString.getTime())) {
+    return fromString.toISOString();
+  }
+
+  return nowIso;
+}
+
 function parseChurnRows(churns: any[]): Array<{ height: number; churn_time: string }> {
   if (!Array.isArray(churns)) {
     return [];
@@ -75,14 +105,9 @@ function parseChurnRows(churns: any[]): Array<{ height: number; churn_time: stri
   return churns
     .slice(0, 11)
     .map((churn) => {
-      const parsedDate = new Date(churn?.date || Date.now());
-      const churnTime = Number.isFinite(parsedDate.getTime())
-        ? parsedDate.toISOString()
-        : new Date().toISOString();
-
       return {
         height: Number(churn?.height) || 0,
-        churn_time: churnTime
+        churn_time: parseMidgardTimestampToIso(churn?.date)
       };
     })
     .filter((row) => Number.isFinite(row.height) && row.height > 0);
@@ -373,9 +398,10 @@ Deno.serve(async (request) => {
     let leaderboardRowCount = 0;
     let historicalFetchFailures = 0;
     let historicalCacheHits = 0;
+    let preBoundaryFetchFailures = 0;
 
     if (shouldRecomputeLeaderboard && churnHeights.length >= 2) {
-      const snapshotsByHeight: Record<number, BoundarySnapshotRow[]> = {};
+      const postChurnSnapshotsByHeight: Record<number, BoundarySnapshotRow[]> = {};
 
       for (const height of churnHeights) {
         try {
@@ -383,21 +409,47 @@ Deno.serve(async (request) => {
           const snapshot = normalizeBoundarySnapshot(historicalNodes);
 
           await replaceBoundarySnapshot(supabase, height, snapshot);
-          snapshotsByHeight[height] = snapshot;
+          postChurnSnapshotsByHeight[height] = snapshot;
         } catch (error) {
           historicalFetchFailures += 1;
 
           const snapshot = await getStoredBoundarySnapshot(supabase, height);
           if (snapshot.length > 0) {
             historicalCacheHits += 1;
-            snapshotsByHeight[height] = snapshot;
+            postChurnSnapshotsByHeight[height] = snapshot;
           }
         }
       }
 
+      const endSnapshotsByHeight: Record<number, BoundarySnapshotRow[]> = {};
+      const endBoundaryHeights = churnHeights.slice(0, requestedWindows);
+
+      await Promise.all(
+        endBoundaryHeights.map(async (endHeight) => {
+          const preChurnHeight = Number(endHeight) - 1;
+          if (!Number.isFinite(preChurnHeight) || preChurnHeight <= 0) {
+            if (postChurnSnapshotsByHeight[endHeight]) {
+              endSnapshotsByHeight[endHeight] = postChurnSnapshotsByHeight[endHeight];
+            }
+            return;
+          }
+
+          try {
+            const preChurnNodes = await fetchNodeAtHeight(preChurnHeight);
+            endSnapshotsByHeight[endHeight] = normalizeBoundarySnapshot(preChurnNodes);
+          } catch (_) {
+            preBoundaryFetchFailures += 1;
+            if (postChurnSnapshotsByHeight[endHeight]) {
+              endSnapshotsByHeight[endHeight] = postChurnSnapshotsByHeight[endHeight];
+            }
+          }
+        })
+      );
+
       const computed = computeLeaderboardRows({
         churnHeights,
-        snapshotsByHeight,
+        snapshotsByHeight: postChurnSnapshotsByHeight,
+        endSnapshotsByHeight,
         minParticipation: 3,
         maxWindows: 10
       });
@@ -463,7 +515,8 @@ Deno.serve(async (request) => {
       computed_windows: computedWindows,
       leaderboard_rows: leaderboardRowCount,
       historical_fetch_failures: historicalFetchFailures,
-      historical_cache_hits: historicalCacheHits
+      historical_cache_hits: historicalCacheHits,
+      pre_boundary_fetch_failures: preBoundaryFetchFailures
     };
 
     await completeJobRun(supabase, jobId, {
