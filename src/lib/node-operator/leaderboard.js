@@ -39,10 +39,12 @@ export function normalizeLeaderboardRows(rows, windows = null) {
       const total = Number(row.total);
       const avgPerChurn = Number(row.avg_per_churn ?? row.avgPerChurn);
       const rank = Number(row.rank);
+      const nodeOperatorAddress = String(row.node_operator_address ?? row.nodeOperatorAddress ?? '');
 
       return {
         rank: Number.isFinite(rank) && rank > 0 ? rank : index + 1,
         node_address: row.node_address,
+        node_operator_address: nodeOperatorAddress,
         perWindow,
         total: Number.isFinite(total) ? total : 0,
         avgPerChurn: Number.isFinite(avgPerChurn) ? avgPerChurn : 0,

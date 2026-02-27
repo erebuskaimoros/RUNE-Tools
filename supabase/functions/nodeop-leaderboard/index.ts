@@ -16,13 +16,16 @@ type MaterializedRow = {
 };
 
 type BoundarySnapshotRow = {
+  height: number;
   node_address: string;
   slash_points: number;
+  status: string;
 };
 
 type RankedRow = {
   rank: number;
   node_address: string;
+  node_operator_address: string;
   per_window: Array<number | null>;
   total: number;
   avg_per_churn: number;
@@ -75,6 +78,10 @@ function buildBoundarySlashMap(rows: BoundarySnapshotRow[]): Map<string, number>
   return map;
 }
 
+function normalizeStatus(value: unknown): string {
+  return String(value || '').trim().toLowerCase();
+}
+
 function buildCurrentDeltaByNode(
   currentNodes: any[],
   boundaryRows: BoundarySnapshotRow[]
@@ -96,12 +103,54 @@ function buildCurrentDeltaByNode(
   return deltaMap;
 }
 
+function buildCurrentNodeOperatorMap(currentNodes: any[]): Map<string, string> {
+  const map = new Map<string, string>();
+
+  for (const node of currentNodes || []) {
+    const address = String(node?.node_address || '');
+    if (!address) continue;
+    map.set(address, String(node?.node_operator_address || ''));
+  }
+
+  return map;
+}
+
+function buildActiveNodeSet(
+  churnBoundaryRows: BoundarySnapshotRow[],
+  currentNodes: any[]
+): Set<string> {
+  const active = new Set<string>();
+
+  for (const row of churnBoundaryRows || []) {
+    const address = String(row?.node_address || '');
+    if (!address) continue;
+    if (normalizeStatus(row?.status) === 'active') {
+      active.add(address);
+    }
+  }
+
+  for (const node of currentNodes || []) {
+    const address = String(node?.node_address || '');
+    if (!address) continue;
+    if (normalizeStatus(node?.status) === 'active') {
+      active.add(address);
+    }
+  }
+
+  return active;
+}
+
 function buildWindowLabels(windows: number): string[] {
   return ['Current', ...Array.from({ length: windows }, (_, idx) => `C${idx + 1}`)];
 }
 
-function rankRows(rows: Array<Omit<RankedRow, 'rank'>>, minParticipation: number): RankedRow[] {
+function rankRows(
+  rows: Array<Omit<RankedRow, 'rank'>>,
+  minParticipation: number,
+  activeNodeSet: Set<string>
+): RankedRow[] {
   return rows
+    .filter((row) => activeNodeSet.has(row.node_address))
     .filter((row) => row.participation >= minParticipation)
     .sort((a, b) => {
       if (a.total !== b.total) return a.total - b.total;
@@ -133,7 +182,7 @@ Deno.serve(async (request) => {
     });
 
     const supabase = createAdminClient();
-    const [materializedResult, latestChurnResult, currentNodes] = await Promise.all([
+    const [materializedResult, churnHeightsResult, currentNodes] = await Promise.all([
       supabase
         .from('nodeop_leaderboard_latest')
         .select('node_address,as_of,computed_windows,per_window')
@@ -142,8 +191,7 @@ Deno.serve(async (request) => {
         .from('nodeop_churn_events')
         .select('height')
         .order('height', { ascending: false })
-        .limit(1)
-        .maybeSingle(),
+        .limit(windows + 1),
       fetchNodes()
     ]);
 
@@ -151,31 +199,44 @@ Deno.serve(async (request) => {
       throw new Error(materializedResult.error.message);
     }
 
-    if (latestChurnResult.error) {
-      throw new Error(latestChurnResult.error.message);
+    if (churnHeightsResult.error) {
+      throw new Error(churnHeightsResult.error.message);
     }
 
-    const latestChurnHeight = Number(latestChurnResult.data?.height) || 0;
+    const churnHeights = (churnHeightsResult.data || [])
+      .map((row) => Number(row?.height) || 0)
+      .filter((height) => Number.isFinite(height) && height > 0);
+
+    const latestChurnHeight = churnHeights[0] || 0;
     if (!latestChurnHeight) {
       throw new Error('No churn boundary available for current-window leaderboard.');
     }
 
     const { data: boundaryRowsRaw, error: boundaryError } = await supabase
       .from('nodeop_boundary_snapshots')
-      .select('node_address,slash_points')
-      .eq('height', latestChurnHeight);
+      .select('height,node_address,slash_points,status')
+      .in('height', churnHeights);
 
     if (boundaryError) {
       throw new Error(boundaryError.message);
     }
 
-    const boundaryRows = (boundaryRowsRaw || []) as BoundarySnapshotRow[];
-    const currentDeltaByNode = buildCurrentDeltaByNode(currentNodes, boundaryRows);
+    const churnBoundaryRows = (boundaryRowsRaw || []) as BoundarySnapshotRow[];
+    const latestBoundaryRows = churnBoundaryRows.filter(
+      (row) => Number(row?.height) === latestChurnHeight
+    );
+
+    const currentDeltaByNode = buildCurrentDeltaByNode(currentNodes, latestBoundaryRows);
+    const currentNodeOperatorMap = buildCurrentNodeOperatorMap(currentNodes);
+    const activeNodeSet = buildActiveNodeSet(churnBoundaryRows, currentNodes);
 
     const materializedRows = (materializedResult.data || []) as MaterializedRow[];
     const asOf = materializedRows[0]?.as_of || new Date().toISOString();
 
-    const rowMap = new Map<string, { node_address: string; per_window: Array<number | null> }>();
+    const rowMap = new Map<
+      string,
+      { node_address: string; node_operator_address: string; per_window: Array<number | null> }
+    >();
 
     for (const row of materializedRows) {
       const address = String(row.node_address || '');
@@ -188,6 +249,7 @@ Deno.serve(async (request) => {
 
       rowMap.set(address, {
         node_address: address,
+        node_operator_address: currentNodeOperatorMap.get(address) || '',
         per_window: [currentDelta, ...historicalPerWindow]
       });
     }
@@ -199,6 +261,7 @@ Deno.serve(async (request) => {
 
       rowMap.set(address, {
         node_address: address,
+        node_operator_address: currentNodeOperatorMap.get(address) || '',
         per_window: [currentDelta, ...Array(windows).fill(null)]
       });
     }
@@ -210,6 +273,7 @@ Deno.serve(async (request) => {
 
       return {
         node_address: row.node_address,
+        node_operator_address: row.node_operator_address,
         per_window: row.per_window,
         total,
         avg_per_churn: avgPerChurn,
@@ -217,7 +281,7 @@ Deno.serve(async (request) => {
       };
     });
 
-    const rows = rankRows(rowsToRank, minParticipation);
+    const rows = rankRows(rowsToRank, minParticipation, activeNodeSet);
 
     const maxComputedWindows = materializedRows.reduce((acc, row) => {
       const parsed = Number(row.computed_windows) || 0;
