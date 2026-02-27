@@ -100,6 +100,8 @@ Returns:
 
 Scoring rule:
 - `delta = max(0, endSlash - startSlash)`
+- `startSlash` is read at the prior churn boundary height.
+- `endSlash` is read at `(current churn boundary - 1)` to avoid churn-block slash resets masking accrued points.
 
 ### GET /nodeop-meta
 Returns:
@@ -113,4 +115,4 @@ Returns:
 - Non-historical THORNode reads: Liquify primary, Nine Realms fallback.
 - Historical snapshots (`/thorchain/nodes?height=`): Liquify only.
 - HTML/challenge responses are treated as failures.
-- Leaderboard recompute tolerates partial historical failures by reusing stored boundary snapshots when available.
+- Leaderboard recompute tolerates partial historical failures by reusing stored post-churn boundary snapshots when pre-churn reads fail.

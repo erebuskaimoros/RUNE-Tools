@@ -46,11 +46,13 @@ function buildSlashMap(snapshot: BoundarySnapshotRow[]): Map<string, number> {
 export function computeLeaderboardRows(options: {
   churnHeights: number[];
   snapshotsByHeight: Record<number, BoundarySnapshotRow[]>;
+  endSnapshotsByHeight?: Record<number, BoundarySnapshotRow[]>;
   minParticipation?: number;
   maxWindows?: number;
 }): LeaderboardResult {
   const churnHeights = Array.isArray(options?.churnHeights) ? options.churnHeights : [];
   const snapshotsByHeight = options?.snapshotsByHeight || {};
+  const endSnapshotsByHeight = options?.endSnapshotsByHeight || snapshotsByHeight;
   const minParticipation = Number(options?.minParticipation ?? 3);
   const maxWindows = Number(options?.maxWindows ?? 10);
 
@@ -63,7 +65,7 @@ export function computeLeaderboardRows(options: {
     const endHeight = Number(churnHeights[windowIndex]);
     const startHeight = Number(churnHeights[windowIndex + 1]);
 
-    const endSnapshot = snapshotsByHeight[endHeight];
+    const endSnapshot = endSnapshotsByHeight[endHeight];
     const startSnapshot = snapshotsByHeight[startHeight];
 
     if (!Array.isArray(endSnapshot) || !Array.isArray(startSnapshot)) {
