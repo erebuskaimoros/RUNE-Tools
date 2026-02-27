@@ -148,6 +148,19 @@
     return `${address.slice(0, 10)}...${address.slice(-6)}`;
   }
 
+  function formatSuffix4(address) {
+    if (!address) return '-';
+    return address.slice(-4);
+  }
+
+  function getThorchainNodeUrl(address) {
+    return `https://thorchain.net/node/${address}`;
+  }
+
+  function getThorchainAddressUrl(address) {
+    return `https://thorchain.net/address/${address}`;
+  }
+
   function formatInteger(value) {
     return Intl.NumberFormat('en-US').format(Number(value) || 0);
   }
@@ -864,6 +877,7 @@
               <tr>
                 <th>Rank</th>
                 <th>Node</th>
+                <th>Operator</th>
                 {#each leaderboardWindowLabels as label}
                   <th>{label}</th>
                 {/each}
@@ -876,7 +890,28 @@
               {#each leaderboardRows as row}
                 <tr class:highlight={row.node_address === nodeAddress}>
                   <td>{row.rank}</td>
-                  <td class="mono">{formatAddress(row.node_address)}</td>
+                  <td class="mono">
+                    <a
+                      href={getThorchainNodeUrl(row.node_address)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      {formatSuffix4(row.node_address)}
+                    </a>
+                  </td>
+                  <td class="mono">
+                    {#if row.node_operator_address}
+                      <a
+                        href={getThorchainAddressUrl(row.node_operator_address)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        {formatSuffix4(row.node_operator_address)}
+                      </a>
+                    {:else}
+                      -
+                    {/if}
+                  </td>
                   {#each row.perWindow as value}
                     <td class={getLeaderboardCellClass(value)}>{value == null ? '-' : value}</td>
                   {/each}
@@ -1225,6 +1260,15 @@
 
   .leaderboard-table {
     min-width: 1160px;
+  }
+
+  .leaderboard-table a {
+    color: #9fd0ff;
+    text-decoration: none;
+  }
+
+  .leaderboard-table a:hover {
+    text-decoration: underline;
   }
 
   .leaderboard-table tr.highlight {
