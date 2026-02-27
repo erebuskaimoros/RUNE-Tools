@@ -82,6 +82,7 @@
   let leaderboardError = '';
   let leaderboardRequestedWindows = 10;
   let leaderboardComputedWindows = 0;
+  let leaderboardWindowLabels = ['Current', ...Array.from({ length: 10 }, (_, idx) => `C${idx + 1}`)];
 
   let refreshInterval;
   let toastTimeout;
@@ -500,7 +501,11 @@
         forceRefresh
       });
 
-      leaderboardRows = normalizeLeaderboardRows(response?.rows, 10);
+      leaderboardWindowLabels = Array.isArray(response?.window_labels) && response.window_labels.length > 0
+        ? response.window_labels
+        : ['Current', ...Array.from({ length: 10 }, (_, idx) => `C${idx + 1}`)];
+
+      leaderboardRows = normalizeLeaderboardRows(response?.rows, leaderboardWindowLabels.length);
       leaderboardRequestedWindows = Number(response?.requested_windows) || 10;
       leaderboardComputedWindows = Number(response?.computed_windows) || 0;
       leaderboardLoaded = true;
@@ -833,7 +838,7 @@
   {#if activeTab === 'leaderboard'}
     <section class="tab-content" in:fade={{ duration: 180 }}>
       <div class="leaderboard-header">
-        <h3>Slash Leaderboard (Last 10 Churns)</h3>
+        <h3>Slash Leaderboard (Current + Last 10 Churns)</h3>
         <button on:click={() => loadLeaderboard(true)} disabled={leaderboardLoading}>
           {leaderboardLoading ? 'Refreshing...' : 'Manual Refresh'}
         </button>
@@ -844,7 +849,7 @@
       {/if}
 
       <div class="leaderboard-meta">
-        <span>Computed from {leaderboardComputedWindows}/{leaderboardRequestedWindows} churn windows</span>
+        <span>Computed from {leaderboardComputedWindows}/{leaderboardRequestedWindows} historical churn windows + current partial window</span>
         <span>Scoring uses `max(0, endSlash - startSlash)`</span>
       </div>
 
@@ -859,16 +864,9 @@
               <tr>
                 <th>Rank</th>
                 <th>Node</th>
-                <th>C1</th>
-                <th>C2</th>
-                <th>C3</th>
-                <th>C4</th>
-                <th>C5</th>
-                <th>C6</th>
-                <th>C7</th>
-                <th>C8</th>
-                <th>C9</th>
-                <th>C10</th>
+                {#each leaderboardWindowLabels as label}
+                  <th>{label}</th>
+                {/each}
                 <th>Total</th>
                 <th>Avg/Churn</th>
                 <th>Participation</th>

@@ -5,10 +5,21 @@ export function getLeaderboardCellClass(value) {
   return 'cell-bad';
 }
 
-export function normalizeLeaderboardRows(rows, windows = 10) {
+export function normalizeLeaderboardRows(rows, windows = null) {
   if (!Array.isArray(rows)) {
     return [];
   }
+
+  const fallbackWindows = rows.reduce((max, row) => {
+    const values = Array.isArray(row?.per_window)
+      ? row.per_window
+      : (Array.isArray(row?.perWindow) ? row.perWindow : []);
+    return Math.max(max, values.length);
+  }, 0);
+
+  const windowCount = Number.isFinite(Number(windows)) && Number(windows) > 0
+    ? Number(windows)
+    : fallbackWindows;
 
   return rows
     .filter((row) => Boolean(row?.node_address))
@@ -17,7 +28,7 @@ export function normalizeLeaderboardRows(rows, windows = 10) {
         ? row.per_window
         : (Array.isArray(row.perWindow) ? row.perWindow : []);
 
-      const perWindow = Array.from({ length: windows }, (_, idx) => {
+      const perWindow = Array.from({ length: windowCount }, (_, idx) => {
         const value = perWindowRaw[idx];
         if (value == null) return null;
         const parsed = Number(value);

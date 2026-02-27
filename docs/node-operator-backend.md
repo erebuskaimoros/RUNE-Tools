@@ -96,9 +96,11 @@ Returns:
 - `as_of`
 - `requested_windows`
 - `computed_windows`
+- `window_labels` (`Current`, `C1..C{windows}`)
 - `rows[]`
 
 Scoring rule:
+- Current partial window is always included as the first column (`Current`).
 - `delta = max(0, endSlash - startSlash)`
 - `startSlash` is read at the prior churn boundary height.
 - `endSlash` is read at `(current churn boundary - 1)` to avoid churn-block slash resets masking accrued points.
