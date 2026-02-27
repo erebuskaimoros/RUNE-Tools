@@ -205,11 +205,28 @@ export async function fetchNodeOperatorLeaderboard(options = {}) {
     min_participation: options.minParticipation ?? 3
   };
 
+  if (options.listOnly) {
+    query.list_only = 1;
+  }
+
   if (options.forceRefresh) {
     query.ts = Date.now();
   }
 
   return fetchNodeOp('nodeop-leaderboard', { query });
+}
+
+export async function fetchNodeOperatorActiveNodes(options = {}) {
+  const response = await fetchNodeOperatorLeaderboard({
+    windows: options.windows ?? 10,
+    minParticipation: 1,
+    listOnly: true,
+    forceRefresh: options.forceRefresh ?? false
+  });
+
+  return Array.isArray(response?.active_node_addresses)
+    ? response.active_node_addresses
+    : [];
 }
 
 export async function fetchNodeOperatorMeta() {
