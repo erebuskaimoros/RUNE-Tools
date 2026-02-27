@@ -115,10 +115,7 @@ function buildCurrentNodeOperatorMap(currentNodes: any[]): Map<string, string> {
   return map;
 }
 
-function buildActiveNodeSet(
-  churnBoundaryRows: BoundarySnapshotRow[],
-  currentNodes: any[]
-): Set<string> {
+function buildActiveNodeSet(churnBoundaryRows: BoundarySnapshotRow[]): Set<string> {
   const active = new Set<string>();
 
   for (const row of churnBoundaryRows || []) {
@@ -129,15 +126,16 @@ function buildActiveNodeSet(
     }
   }
 
-  for (const node of currentNodes || []) {
-    const address = String(node?.node_address || '');
-    if (!address) continue;
-    if (normalizeStatus(node?.status) === 'active') {
-      active.add(address);
-    }
-  }
-
   return active;
+}
+
+function toSortedAddresses(values: Set<string>): string[] {
+  return Array.from(values).sort((a, b) => a.localeCompare(b));
+}
+
+function parseBooleanFlag(value: string | null): boolean {
+  const normalized = String(value || '').trim().toLowerCase();
+  return normalized === '1' || normalized === 'true' || normalized === 'yes';
 }
 
 function buildWindowLabels(windows: number): string[] {
@@ -176,6 +174,7 @@ Deno.serve(async (request) => {
   try {
     const url = new URL(request.url);
     const windows = parseIntegerParam(url.searchParams.get('windows'), 10, { min: 1, max: 10 });
+    const listOnly = parseBooleanFlag(url.searchParams.get('list_only'));
     const minParticipation = parseIntegerParam(url.searchParams.get('min_participation'), 3, {
       min: 1,
       max: windows + 1
@@ -228,7 +227,8 @@ Deno.serve(async (request) => {
 
     const currentDeltaByNode = buildCurrentDeltaByNode(currentNodes, latestBoundaryRows);
     const currentNodeOperatorMap = buildCurrentNodeOperatorMap(currentNodes);
-    const activeNodeSet = buildActiveNodeSet(churnBoundaryRows, currentNodes);
+    const activeNodeSet = buildActiveNodeSet(churnBoundaryRows);
+    const activeNodeAddresses = toSortedAddresses(activeNodeSet);
 
     const materializedRows = (materializedResult.data || []) as MaterializedRow[];
     const asOf = materializedRows[0]?.as_of || new Date().toISOString();
@@ -288,12 +288,30 @@ Deno.serve(async (request) => {
       return Math.max(acc, parsed);
     }, 0);
 
+    const responseBase = {
+      as_of: asOf,
+      requested_windows: windows,
+      computed_windows: Math.min(windows, maxComputedWindows),
+      window_labels: buildWindowLabels(windows),
+      active_node_addresses: activeNodeAddresses
+    };
+
+    if (listOnly) {
+      return jsonResponse(
+        {
+          ...responseBase,
+          rows: []
+        },
+        200,
+        {
+          'Cache-Control': 'public, max-age=60'
+        }
+      );
+    }
+
     return jsonResponse(
       {
-        as_of: asOf,
-        requested_windows: windows,
-        computed_windows: Math.min(windows, maxComputedWindows),
-        window_labels: buildWindowLabels(windows),
+        ...responseBase,
         rows
       },
       200,

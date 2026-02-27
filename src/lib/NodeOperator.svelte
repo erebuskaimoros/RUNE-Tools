@@ -9,6 +9,7 @@
     fetchWalletBalances,
     fetchNodeOperatorPerformance,
     fetchNodeOperatorLeaderboard,
+    fetchNodeOperatorActiveNodes,
     fetchNodeOperatorMeta,
     isValidThorAddress,
     toBaseAmount,
@@ -83,6 +84,9 @@
   let leaderboardRequestedWindows = 10;
   let leaderboardComputedWindows = 0;
   let leaderboardWindowLabels = ['Current', ...Array.from({ length: 10 }, (_, idx) => `C${idx + 1}`)];
+  let activeNodeOptions = [];
+  let activeNodeOptionsLoading = false;
+  let activeNodeOptionsError = '';
 
   let refreshInterval;
   let toastTimeout;
@@ -285,6 +289,25 @@
     }
 
     isLoadingNode = false;
+  }
+
+  async function loadActiveNodeOptions(forceRefresh = false) {
+    activeNodeOptionsLoading = true;
+    activeNodeOptionsError = '';
+
+    try {
+      const addresses = await fetchNodeOperatorActiveNodes({
+        windows: 10,
+        forceRefresh
+      });
+
+      activeNodeOptions = addresses.filter((address) => isValidThorAddress(address));
+    } catch (error) {
+      activeNodeOptions = [];
+      activeNodeOptionsError = error.message || 'Failed to load active node list.';
+    }
+
+    activeNodeOptionsLoading = false;
   }
 
   function getProviderRows(node) {
@@ -514,6 +537,11 @@
         forceRefresh
       });
 
+      if (Array.isArray(response?.active_node_addresses)) {
+        activeNodeOptions = response.active_node_addresses
+          .filter((address) => isValidThorAddress(address));
+      }
+
       leaderboardWindowLabels = Array.isArray(response?.window_labels) && response.window_labels.length > 0
         ? response.window_labels
         : ['Current', ...Array.from({ length: 10 }, (_, idx) => `C${idx + 1}`)];
@@ -546,6 +574,8 @@
   onMount(async () => {
     walletSupported = hasThorProvider();
 
+    await loadActiveNodeOptions();
+
     const urlParams = new URLSearchParams(window.location.search);
     const urlNode = normalizeAddress(urlParams.get('node_address') || '');
     const savedNode = normalizeAddress(localStorage.getItem(NODE_STORAGE_KEY) || '');
@@ -554,9 +584,12 @@
       ? urlNode
       : (isValidThorAddress(savedNode) ? savedNode : '');
 
-    if (initialNode) {
+    if (initialNode && activeNodeOptions.includes(initialNode)) {
       nodeAddressInput = initialNode;
       await applyNodeAddress(initialNode);
+    } else if (initialNode) {
+      nodeAddressInput = '';
+      nodeError = 'Saved node is not in the active set from the last 10 churns.';
     }
 
     refreshInterval = setInterval(() => {
@@ -577,15 +610,25 @@
     <form class="node-form" on:submit={loadNodeFromInput}>
       <label for="node-address">Node Address</label>
       <div class="node-input-row">
-        <input
+        <select
           id="node-address"
-          type="text"
           bind:value={nodeAddressInput}
-          placeholder="thor1..."
-          autocomplete="off"
-        />
-        <button type="submit" disabled={!inputAddressValid || isLoadingNode}>Load Node</button>
+          disabled={activeNodeOptionsLoading || activeNodeOptions.length === 0}
+        >
+          <option value="">
+            {activeNodeOptionsLoading ? 'Loading active nodes...' : 'Select active node'}
+          </option>
+          {#each activeNodeOptions as optionAddress}
+            <option value={optionAddress}>
+              {formatSuffix4(optionAddress)} - {optionAddress}
+            </option>
+          {/each}
+        </select>
+        <button type="submit" disabled={!inputAddressValid || isLoadingNode || activeNodeOptionsLoading}>Load Node</button>
       </div>
+      {#if activeNodeOptionsError}
+        <small class="warn">{activeNodeOptionsError}</small>
+      {/if}
       {#if nodeAddress && nodeAddressValid}
         <small>Tracking node: {nodeAddress}</small>
       {/if}
@@ -1014,7 +1057,8 @@
     grid-template-columns: 1fr auto;
   }
 
-  input {
+  input,
+  select {
     background: #11181f;
     border: 1px solid #355168;
     border-radius: 8px;

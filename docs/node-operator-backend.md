@@ -97,6 +97,7 @@ Returns:
 - `requested_windows`
 - `computed_windows`
 - `window_labels` (`Current`, `C1..C{windows}`)
+- `active_node_addresses` (unique active-set nodes across the last 10 churn boundaries)
 - `rows[]` with `node_address`, `node_operator_address`, `per_window`, `total`, `avg_per_churn`, `participation`, `rank`
 
 Scoring rule:
@@ -104,7 +105,7 @@ Scoring rule:
 - `delta = max(0, endSlash - startSlash)`
 - `startSlash` is read at the prior churn boundary height.
 - `endSlash` is read at `(current churn boundary - 1)` to avoid churn-block slash resets masking accrued points.
-- Rows are filtered to nodes that are in the Active set during the displayed churn boundaries (and current Active set).
+- Rows are filtered to nodes that were in the Active set during the displayed churn boundaries.
 
 ### GET /nodeop-meta
 Returns:
