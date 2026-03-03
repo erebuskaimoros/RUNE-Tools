@@ -23,22 +23,28 @@ jobs:
             exit 1
           fi
 
-          if [ -n "${NODEOP_SCHEDULER_SECRET:-}" ]; then
-            curl --fail --show-error --silent \
-              -X POST \
-              -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
-              -H "Content-Type: application/json" \
-              -H "x-nodeop-secret: ${NODEOP_SCHEDULER_SECRET}" \
-              "${NODEOP_SCHEDULER_URL}" \
-              | tee /tmp/nodeop-scheduler-response.json
-          else
-            curl --fail --show-error --silent \
-              -X POST \
-              -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
-              -H "Content-Type: application/json" \
-              "${NODEOP_SCHEDULER_URL}" \
-              | tee /tmp/nodeop-scheduler-response.json
+          if ! printf '%s' "${NODEOP_SCHEDULER_URL}" | grep -Eq '^https?://'; then
+            echo "Invalid NODEOP_SCHEDULER_URL secret: expected absolute http(s) URL"
+            exit 1
           fi
+
+          curl_args=(
+            --fail
+            --show-error
+            --silent
+            --connect-timeout 15
+            --max-time 120
+            --request POST
+            --url "${NODEOP_SCHEDULER_URL}"
+            --header "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}"
+            --header "Content-Type: application/json"
+          )
+
+          if [ -n "${NODEOP_SCHEDULER_SECRET:-}" ]; then
+            curl_args+=(--header "x-nodeop-secret: ${NODEOP_SCHEDULER_SECRET}")
+          fi
+
+          curl "${curl_args[@]}" | tee /tmp/nodeop-scheduler-response.json
 
           echo
           echo "Scheduler trigger completed"
