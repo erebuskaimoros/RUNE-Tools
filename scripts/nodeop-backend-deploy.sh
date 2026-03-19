@@ -23,6 +23,8 @@ supabase functions deploy nodeop-performance --no-verify-jwt
 supabase functions deploy nodeop-leaderboard --no-verify-jwt
 supabase functions deploy nodeop-meta --no-verify-jwt
 supabase functions deploy nodeop-scheduler
+supabase functions deploy rapid-swaps --no-verify-jwt
+supabase functions deploy rapid-swaps-scheduler
 
 if [[ -n "${NODEOP_SCHEDULER_SECRET:-}" ]]; then
   echo "Setting NODEOP_SCHEDULER_SECRET function secret..."

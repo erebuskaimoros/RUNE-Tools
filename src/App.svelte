@@ -255,6 +255,13 @@
       description: "Monitor active limit swaps (orderbooks) on THORChain stagenet"
     },
     {
+      name: "Rapid Swaps",
+      component: () => import("./lib/RapidSwaps.svelte"),
+      icon: "⚡",
+      path: "rapid-swaps",
+      description: "Track live rapid streams plus the largest and latest recorded rapid swaps"
+    },
+    {
       name: "Secured Assets",
       component: () => import("./lib/SecuredAssets.svelte"),
       icon: "🧪",
