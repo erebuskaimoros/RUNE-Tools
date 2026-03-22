@@ -102,6 +102,19 @@
     return `${Math.floor(numeric / 3600)}h old`;
   }
 
+  function swapPctFaster(row) {
+    const subs = Number(row?.streaming_count) || 0;
+    const blocks = Number(row?.blocks_used) || 0;
+    if (subs <= 0 || blocks <= 0) return 0;
+    return Math.round((1 - blocks / subs) * 100);
+  }
+
+  function swapTimeSaved(row) {
+    const subs = Number(row?.streaming_count) || 0;
+    const blocks = Number(row?.blocks_used) || 0;
+    return Math.max(0, subs - blocks) * 6;
+  }
+
   function getTxUrl(txId) {
     return `https://thorchain.net/tx/${txId}`;
   }
@@ -302,7 +315,12 @@
     <div class="metric">
       <div class="metric-val amber">{formatTimeSaved(dashboard?.time_saved_seconds || 0)}</div>
       <div class="metric-key">TIME SAVED</div>
-      <div class="metric-sub">vs interval=1 streaming</div>
+      <div class="metric-sub">{formatTimeSaved(dashboard?.baseline_seconds || 0)} at interval=1</div>
+    </div>
+    <div class="metric">
+      <div class="metric-val amber">{dashboard?.pct_faster || 0}%</div>
+      <div class="metric-key">FASTER</div>
+      <div class="metric-sub">{formatTimeSaved(dashboard?.actual_seconds || 0)} actual vs {formatTimeSaved(dashboard?.baseline_seconds || 0)}</div>
     </div>
   </div>
 
@@ -331,11 +349,14 @@
               <th class="col-usd right">USD</th>
               <th class="col-subs right">SUBS</th>
               <th class="col-blocks right">BLOCKS</th>
+              <th class="col-saved right">SAVED</th>
               <th class="col-tx">TX</th>
             </tr>
           </thead>
           <tbody>
             {#each topSwaps as row, index}
+              {@const pct = swapPctFaster(row)}
+              {@const saved = swapTimeSaved(row)}
               <tr>
                 <td class="col-rank mono dim">{index + 1}</td>
                 <td class="col-when mono">{formatDateTime(row.action_date)}</td>
@@ -344,6 +365,7 @@
                 <td class="col-usd mono right accent">{formatUSD(row.input_estimated_usd || 0)}</td>
                 <td class="col-subs mono right">{row.streaming_count}/{row.streaming_quantity}</td>
                 <td class="col-blocks mono right">{row.blocks_used || '-'}</td>
+                <td class="col-saved mono right">{#if saved > 0}<span class="amber">{formatTimeSaved(saved)} ({pct}%)</span>{:else}<span class="dim">--</span>{/if}</td>
                 <td class="col-tx"><a href={getTxUrl(row.tx_id)} target="_blank" rel="noreferrer">{row.tx_id.slice(0, 8)}</a></td>
               </tr>
             {/each}
@@ -377,11 +399,14 @@
               <th class="col-usd right">USD</th>
               <th class="col-subs right">SUBS</th>
               <th class="col-blocks right">BLOCKS</th>
+              <th class="col-saved right">SAVED</th>
               <th class="col-tx">TX</th>
             </tr>
           </thead>
           <tbody>
             {#each recentSwaps as row}
+              {@const pct = swapPctFaster(row)}
+              {@const saved = swapTimeSaved(row)}
               <tr>
                 <td class="col-when mono">{formatDateTime(row.action_date)}</td>
                 <td class="col-pair">{formatPair(row)}</td>
@@ -389,6 +414,7 @@
                 <td class="col-usd mono right accent">{formatUSD(row.input_estimated_usd || 0)}</td>
                 <td class="col-subs mono right">{row.streaming_count}/{row.streaming_quantity}</td>
                 <td class="col-blocks mono right">{row.blocks_used || '-'}</td>
+                <td class="col-saved mono right">{#if saved > 0}<span class="amber">{formatTimeSaved(saved)} ({pct}%)</span>{:else}<span class="dim">--</span>{/if}</td>
                 <td class="col-tx"><a href={getTxUrl(row.tx_id)} target="_blank" rel="noreferrer">{row.tx_id.slice(0, 8)}</a></td>
               </tr>
             {/each}
@@ -501,7 +527,7 @@
   /* ---- METRICS ---- */
   .metrics {
     display: grid;
-    grid-template-columns: repeat(5, 1fr);
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
     border-bottom: 1px solid #1a1a1a;
     background: #0d0d0d;
   }

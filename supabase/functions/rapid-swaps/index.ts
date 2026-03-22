@@ -116,14 +116,23 @@ Deno.serve(async (request) => {
       0
     );
     const BLOCK_TIME_SECONDS = 6;
+    let totalSubs = 0;
+    let totalBlocksUsed = 0;
     const timeSavedSeconds = allVolumeRows.reduce(
       (sum: number, row: any) => {
         const subs = Math.max(1, Number(row.streaming_count) || 1);
         const blocksUsed = Math.max(1, Number(row.blocks_used) || 1);
+        totalSubs += subs;
+        totalBlocksUsed += blocksUsed;
         return sum + Math.max(0, subs - blocksUsed) * BLOCK_TIME_SECONDS;
       },
       0
     );
+    const baselineSeconds = totalSubs * BLOCK_TIME_SECONDS;
+    const actualSeconds = totalBlocksUsed * BLOCK_TIME_SECONDS;
+    const pctFaster = baselineSeconds > 0
+      ? Math.round((1 - actualSeconds / baselineSeconds) * 100)
+      : 0;
     const lastRunAt = lastRunResult.data?.finished_at || null;
     const freshnessSeconds = lastRunAt
       ? Math.max(0, Math.floor((Date.now() - Date.parse(lastRunAt)) / 1000))
@@ -140,6 +149,9 @@ Deno.serve(async (request) => {
         total_tracked: countResult.count || 0,
         cumulative_volume_usd: cumulativeVolumeUsd,
         time_saved_seconds: timeSavedSeconds,
+        baseline_seconds: baselineSeconds,
+        actual_seconds: actualSeconds,
+        pct_faster: pctFaster,
         recent_24h_count: recentRows.length,
         recent_24h_volume_usd: recentRows.reduce((sum, row: any) => sum + (Number(row.input_estimated_usd) || 0), 0),
         top_20: topRows,
