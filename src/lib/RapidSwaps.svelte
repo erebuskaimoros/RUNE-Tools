@@ -1,6 +1,5 @@
 <script>
   import { onMount } from 'svelte';
-  import { createClient } from '@supabase/supabase-js';
   import { formatNumber, formatUSD, formatUSDCompact } from '$lib/utils/formatting';
   import { fromBaseUnit, normalizeAsset } from '$lib/utils/blockchain';
   import {
@@ -8,24 +7,27 @@
     getRapidSwapsApiConfigError
   } from './rapid-swaps/api.js';
 
-  const REFRESH_INTERVAL_MS = 120000; // Slower poll since realtime handles updates
-  const SUPABASE_URL = import.meta.env.VITE_RAPID_SWAPS_API_BASE || import.meta.env.VITE_NODEOP_API_BASE || '';
-  const SUPABASE_KEY = import.meta.env.VITE_RAPID_SWAPS_API_KEY || import.meta.env.VITE_NODEOP_API_KEY || '';
+  const REFRESH_INTERVAL_MS = 120000;
+  const RPC_WS_URL = 'wss://rpc.thorchain.network/websocket';
+  const RECONNECT_BASE_MS = 2000;
+  const RECONNECT_MAX_MS = 30000;
+  const REFRESH_DEBOUNCE_MS = 8000; // Wait for server-side listener to process + Midgard
 
   let loading = true;
   let refreshing = false;
   let dashboard = null;
   let dashboardError = '';
   let refreshInterval;
-  let realtimeChannel = null;
-  let lastRealtimeEvent = null;
+  let rpcWs = null;
+  let rpcReconnectAttempt = 0;
+  let rpcConnected = false;
+  let rpcLastBlock = 0;
+  let pendingRefreshTimer = null;
 
   $: topSwaps = dashboard?.top_20 || [];
   $: recentSwaps = dashboard?.recent_24h || [];
   $: trackerStart = dashboard?.tracker_started_at || null;
   $: backendMeta = dashboard?.backend || null;
-  $: wsListener = dashboard?.ws_listener || null;
-  $: wsAlive = wsListener && wsListener.age_seconds >= 0 && wsListener.age_seconds < 120;
   $: backendConfigError = getRapidSwapsApiConfigError();
 
   function formatAsset(asset) {
@@ -123,46 +125,118 @@
     refreshing = false;
   }
 
-  function setupRealtime() {
-    // The SUPABASE_URL is the functions base (e.g. https://xxx.supabase.co/functions/v1)
-    // We need the project root URL for realtime
-    const projectUrl = SUPABASE_URL.replace(/\/functions\/v1\/?$/, '');
-    if (!projectUrl || !SUPABASE_KEY) return;
-
+  function tryDecodeAttr(val) {
+    if (!val) return '';
     try {
-      const supabase = createClient(projectUrl, SUPABASE_KEY);
-      realtimeChannel = supabase
-        .channel('rapid-swaps-live')
-        .on('postgres_changes', {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'rapid_swaps'
-        }, () => {
-          lastRealtimeEvent = Date.now();
-          loadData(false);
-        })
-        .on('postgres_changes', {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'rapid_swaps'
-        }, () => {
-          lastRealtimeEvent = Date.now();
-          loadData(false);
-        })
-        .subscribe();
+      if (/^[A-Za-z0-9+/]+=*$/.test(val) && val.length > 1) {
+        const decoded = atob(val);
+        if (/^[\x20-\x7E]*$/.test(decoded) && decoded.length > 0) return decoded;
+      }
     } catch (_) {}
+    return val;
+  }
+
+  function checkBlockForRapidSwaps(msg) {
+    try {
+      const data = msg.result?.data?.value;
+      if (!data) return;
+
+      const blockHeight = Number(data.block?.header?.height) || 0;
+      if (blockHeight > 0) rpcLastBlock = blockHeight;
+
+      const events = data.result_finalize_block?.events || data.result_end_block?.events || [];
+
+      for (const event of events) {
+        if (event.type !== 'streaming_swap') continue;
+
+        const attrs = {};
+        for (const attr of event.attributes || []) {
+          attrs[tryDecodeAttr(attr.key)] = tryDecodeAttr(attr.value);
+        }
+
+        const interval = Number(attrs.interval);
+        const quantity = Number(attrs.quantity);
+        const count = Number(attrs.count);
+
+        if (interval === 0 && quantity > 1 && count > 0) {
+          // Rapid swap detected — debounce a refresh to let the server-side
+          // listener process it and write to Supabase first
+          scheduleRefresh();
+          return;
+        }
+      }
+    } catch (_) {}
+  }
+
+  function scheduleRefresh() {
+    // Debounce: if multiple rapid swaps in quick succession, only refresh once
+    clearTimeout(pendingRefreshTimer);
+    pendingRefreshTimer = setTimeout(() => {
+      loadData(false);
+    }, REFRESH_DEBOUNCE_MS);
+  }
+
+  function connectRpcWs() {
+    try {
+      rpcWs = new WebSocket(RPC_WS_URL);
+
+      rpcWs.onopen = () => {
+        rpcConnected = true;
+        rpcReconnectAttempt = 0;
+        rpcWs.send(JSON.stringify({
+          jsonrpc: '2.0',
+          method: 'subscribe',
+          id: 1,
+          params: { query: "tm.event='NewBlock'" }
+        }));
+      };
+
+      rpcWs.onmessage = (e) => {
+        try {
+          checkBlockForRapidSwaps(JSON.parse(e.data));
+        } catch (_) {}
+      };
+
+      rpcWs.onclose = () => {
+        rpcConnected = false;
+        reconnectRpcWs();
+      };
+
+      rpcWs.onerror = () => {
+        rpcConnected = false;
+      };
+    } catch (_) {
+      rpcConnected = false;
+      reconnectRpcWs();
+    }
+  }
+
+  function reconnectRpcWs() {
+    const delay = Math.min(RECONNECT_BASE_MS * Math.pow(2, rpcReconnectAttempt), RECONNECT_MAX_MS);
+    rpcReconnectAttempt++;
+    setTimeout(connectRpcWs, delay);
+  }
+
+  function disconnectRpcWs() {
+    if (rpcWs) {
+      rpcWs.onclose = null; // Prevent reconnect
+      rpcWs.close();
+      rpcWs = null;
+    }
+    rpcConnected = false;
   }
 
   onMount(() => {
     loadData(true);
-    setupRealtime();
+    connectRpcWs();
     refreshInterval = setInterval(() => {
       loadData(false);
     }, REFRESH_INTERVAL_MS);
 
     return () => {
       clearInterval(refreshInterval);
-      if (realtimeChannel) realtimeChannel.unsubscribe();
+      clearTimeout(pendingRefreshTimer);
+      disconnectRpcWs();
     };
   });
 </script>
@@ -193,20 +267,16 @@
       {/if}
     </span>
     <span class="status-right">
-      {#if wsListener}
-        <span class="ws-badge" class:ws-ok={wsAlive} class:ws-down={!wsAlive}>
-          <span class="ws-dot"></span>
-          WS {wsAlive ? 'LIVE' : 'DOWN'}
-          {#if wsAlive && wsListener.stats?.last_block}
-            <span class="sep">|</span>
-            BLK {wsListener.stats.last_block.toLocaleString()}
-          {/if}
-        </span>
-      {/if}
+      <span class="ws-badge" class:ws-ok={rpcConnected} class:ws-down={!rpcConnected}>
+        <span class="ws-dot"></span>
+        {rpcConnected ? 'LIVE' : 'CONNECTING'}
+        {#if rpcConnected && rpcLastBlock}
+          <span class="sep">|</span>
+          BLK {rpcLastBlock.toLocaleString()}
+        {/if}
+      </span>
       {#if refreshing}
         <span class="sep">|</span> REFRESHING...
-      {:else if backendMeta?.last_run_at}
-        <span class="sep">|</span> POLL {formatRelative(backendMeta.last_run_at)}
       {/if}
     </span>
   </div>
