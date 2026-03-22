@@ -30,9 +30,17 @@
   $: backendMeta = dashboard?.backend || null;
   $: backendConfigError = getRapidSwapsApiConfigError();
 
+  function shortenAsset(asset) {
+    if (!asset) return '-';
+    // Strip contract address but preserve the separator (. ~ -)
+    const match = asset.match(/^(.+?)[-](?:0[Xx][A-Fa-f0-9]{8,})$/);
+    if (match) return match[1];
+    return asset;
+  }
+
   function formatAsset(asset) {
     if (!asset) return '-';
-    return normalizeAsset(asset);
+    return shortenAsset(asset);
   }
 
   function formatPair(row) {
