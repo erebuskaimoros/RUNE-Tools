@@ -207,38 +207,39 @@ async function processRapidSwap(detected, blockHeight) {
 
   log(`Rapid swap detected: ${tx_id} (${detected.count}/${detected.quantity} subs, block ${blockHeight})`);
 
-  // Wait for Midgard to index
+  // Wait for Midgard to index — rapid swaps complete fast but Midgard
+  // needs time to index and mark status=success
   await sleep(MIDGARD_DELAY_MS);
 
-  // Fetch full action from Midgard
-  let action;
-  let retries = 3;
+  let row = null;
+  let retries = 5;
+
   while (retries > 0) {
-    action = await fetchMidgardAction(tx_id).catch(() => null);
-    if (action) break;
+    const action = await fetchMidgardAction(tx_id).catch(() => null);
+
+    if (action) {
+      const priceIndex = await fetchPriceIndex().catch(() => ({ prices: new Map(), runePriceUsd: 0 }));
+      row = normalizeRapidSwapAction(action, {
+        observedAt: new Date().toISOString(),
+        priceIndex
+      });
+
+      if (row) break;
+
+      // Action exists but didn't pass filter (likely status != success yet)
+      log(`  ${tx_id} status=${action?.status || '?'}, waiting for completion...`);
+    } else {
+      log(`  Midgard not ready for ${tx_id}...`);
+    }
+
     retries--;
     if (retries > 0) {
-      log(`  Midgard not ready for ${tx_id}, retrying in 5s...`);
-      await sleep(5000);
+      await sleep(10000);
     }
   }
 
-  if (!action) {
-    log(`  Failed to fetch action from Midgard for ${tx_id}, skipping`);
-    return;
-  }
-
-  // Get price index for USD estimation
-  const priceIndex = await fetchPriceIndex().catch(() => ({ prices: new Map(), runePriceUsd: 0 }));
-
-  // Normalize using existing model
-  const row = normalizeRapidSwapAction(action, {
-    observedAt: new Date().toISOString(),
-    priceIndex
-  });
-
   if (!row) {
-    log(`  Action ${tx_id} did not pass normalizeRapidSwapAction filter`);
+    log(`  Failed to record ${tx_id} after retries, skipping`);
     return;
   }
 

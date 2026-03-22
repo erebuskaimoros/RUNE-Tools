@@ -70,10 +70,12 @@ Built and deployed the Rapid Swaps dashboard end-to-end: deployed Supabase backe
 
 None - session complete. All changes deployed and live.
 
+**Post-commit fix**: WebSocket listener was detecting rapid swaps but failing to record them because Midgard hadn't marked them `status=success` within the 5s delay window. Fixed retry logic to attempt 5 retries with 10s waits when action exists but status isn't success yet. Verified all 30 tracked swaps match Midgard cross-check — no gaps.
+
 ## Next Steps
 
-- [ ] Consider disabling the GitHub Actions 5-minute scheduler now that the WebSocket listener is running (or keep as backup)
 - [ ] Monitor WebSocket listener stability over the next few days via `journalctl -u rapid-swap-listener -f`
+- [ ] Consider disabling the GitHub Actions 5-minute scheduler now that the WebSocket listener is proven (or keep as backup)
 - [ ] Add asset logos/icons next to pair names in the table
 - [ ] Consider adding a chart showing rapid swap volume over time
 - [ ] Investigate whether the time saved calculation should use actual block times instead of assuming 6s
