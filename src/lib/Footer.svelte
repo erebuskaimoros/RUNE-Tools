@@ -15,7 +15,7 @@
   let startX = 0;
   let startY = 0;
   let isDragging = false;
-  const totalPages = 2;
+  let totalPages = 1;
   let autoScrollTimer;
   let isUserInteracting = false;
 
@@ -63,6 +63,8 @@
       }
     }
   ];
+
+  totalPages = pages.length;
 
   function startAutoScroll() {
     clearTimeout(autoScrollTimer);

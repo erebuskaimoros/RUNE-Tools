@@ -35,6 +35,8 @@ Replaced the Supabase Realtime subscription with a direct WebSocket connection f
 
 None - session complete.
 
+**Post-deploy fix**: Footer crash — `const totalPages = pages.length` was declared before `pages` was defined, causing `ReferenceError: Cannot access 'O' before initialization` in Svelte 5. Fixed by using `let totalPages = 1` and assigning `totalPages = pages.length` after the `pages` array definition.
+
 ## Next Steps
 
 - [ ] Monitor that browser WS connections don't get rate-limited at scale
