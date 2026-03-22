@@ -4,13 +4,13 @@
  * Midgard provides aggregated and historical data for THORChain.
  * It's better suited for analytics, historical queries, and member data.
  *
- * Endpoint: https://midgard.ninerealms.com/v2
+ * Endpoint: https://midgard.thorchain.network/v2
  */
 
 /**
  * Midgard API base URL
  */
-export const MIDGARD_BASE = 'https://midgard.ninerealms.com/v2';
+export const MIDGARD_BASE = 'https://midgard.thorchain.network/v2';
 
 /**
  * Midgard API Client class

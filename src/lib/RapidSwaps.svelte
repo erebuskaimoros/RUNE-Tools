@@ -1,10 +1,8 @@
 <script>
   import { onMount } from 'svelte';
-  import { DataCard, PageHeader } from '$lib/components';
   import { formatNumber, formatUSD, formatUSDCompact } from '$lib/utils/formatting';
   import { fromBaseUnit, normalizeAsset } from '$lib/utils/blockchain';
   import {
-    fetchLiveRapidSwaps,
     fetchRapidSwapsDashboard,
     getRapidSwapsApiConfigError
   } from './rapid-swaps/api.js';
@@ -14,15 +12,15 @@
   let loading = true;
   let refreshing = false;
   let dashboard = null;
-  let liveRapidSwaps = [];
   let dashboardError = '';
-  let liveError = '';
   let refreshInterval;
 
   $: topSwaps = dashboard?.top_20 || [];
   $: recentSwaps = dashboard?.recent_24h || [];
   $: trackerStart = dashboard?.tracker_started_at || null;
   $: backendMeta = dashboard?.backend || null;
+  $: wsListener = dashboard?.ws_listener || null;
+  $: wsAlive = wsListener && wsListener.age_seconds >= 0 && wsListener.age_seconds < 120;
   $: backendConfigError = getRapidSwapsApiConfigError();
 
   function formatAsset(asset) {
@@ -31,7 +29,7 @@
   }
 
   function formatPair(row) {
-    return `${formatAsset(row?.source_asset)} -> ${formatAsset(row?.target_asset)}`;
+    return `${formatAsset(row?.source_asset)} → ${formatAsset(row?.target_asset)}`;
   }
 
   function formatAmount(amountBase, maxFractionDigits = 4) {
@@ -71,6 +69,15 @@
     return `${diffDays}d ago`;
   }
 
+  function formatTimeSaved(seconds) {
+    const s = Number(seconds) || 0;
+    if (s < 60) return `${s}s`;
+    if (s < 3600) return `${Math.floor(s / 60)}m ${s % 60}s`;
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    return m > 0 ? `${h}h ${m}m` : `${h}h`;
+  }
+
   function formatFreshness(seconds) {
     const numeric = Number(seconds);
     if (!Number.isFinite(numeric) || numeric < 0) {
@@ -99,25 +106,12 @@
       refreshing = true;
     }
 
-    const [liveResult, dashboardResult] = await Promise.allSettled([
-      fetchLiveRapidSwaps(),
-      fetchRapidSwapsDashboard()
-    ]);
-
-    if (liveResult.status === 'fulfilled') {
-      liveRapidSwaps = liveResult.value;
-      liveError = '';
-    } else {
-      liveRapidSwaps = [];
-      liveError = liveResult.reason?.message || 'Failed to load live rapid swaps';
-    }
-
-    if (dashboardResult.status === 'fulfilled') {
-      dashboard = dashboardResult.value;
+    try {
+      dashboard = await fetchRapidSwapsDashboard();
       dashboardError = '';
-    } else {
+    } catch (err) {
       dashboard = null;
-      dashboardError = dashboardResult.reason?.message || 'Failed to load recorded rapid swaps';
+      dashboardError = err?.message || 'Failed to load recorded rapid swaps';
     }
 
     loading = false;
@@ -134,145 +128,113 @@
   });
 </script>
 
-<div class="rapid-swaps-page">
-  <PageHeader
-    title="Rapid Swaps"
-    subtitle="Live rapid streams plus recorded top-20 and rolling 24-hour activity."
-  >
-    <div slot="actions" class="header-actions">
+<div class="rs">
+  <!-- Status bar -->
+  <div class="status-bar">
+    <span class="status-left">
+      {#if dashboard}
+        <span class="status-dot" class:ok={backendMeta?.last_run_status === 'success'} class:err={backendMeta?.last_run_status !== 'success'}></span>
+        RECORDER {backendMeta?.last_run_status === 'success' ? 'OK' : 'ERR'}
+        <span class="sep">|</span>
+        {formatFreshness(backendMeta?.freshness_seconds)}
+        {#if trackerStart}
+          <span class="sep">|</span>
+          since {formatDateTime(trackerStart)}
+        {/if}
+        {#if !dashboard?.tracker_warmup_complete}
+          <span class="sep">|</span>
+          <span class="warn-text">warming up</span>
+        {/if}
+      {:else if dashboardError}
+        <span class="status-dot err"></span>
+        RECORDER OFFLINE
+      {:else}
+        <span class="status-dot"></span>
+        CONNECTING...
+      {/if}
+    </span>
+    <span class="status-right">
+      {#if wsListener}
+        <span class="ws-badge" class:ws-ok={wsAlive} class:ws-down={!wsAlive}>
+          <span class="ws-dot"></span>
+          WS {wsAlive ? 'LIVE' : 'DOWN'}
+          {#if wsAlive && wsListener.stats?.last_block}
+            <span class="sep">|</span>
+            BLK {wsListener.stats.last_block.toLocaleString()}
+          {/if}
+        </span>
+      {/if}
       {#if refreshing}
-        <span class="refreshing">Refreshing...</span>
+        <span class="sep">|</span> REFRESHING...
       {:else if backendMeta?.last_run_at}
-        <span class="refreshing">Recorder {formatRelative(backendMeta.last_run_at)}</span>
+        <span class="sep">|</span> POLL {formatRelative(backendMeta.last_run_at)}
       {/if}
-    </div>
-  </PageHeader>
-
-  <div class="metrics-grid">
-    <DataCard title="Live Active" height="130px">
-      <div class="metric-value">{formatNumber(liveRapidSwaps.length, { maximumFractionDigits: 0 })}</div>
-      <div class="metric-label">interval = 0 streams right now</div>
-    </DataCard>
-
-    <DataCard title="Recorded 24h" height="130px">
-      <div class="metric-value">{formatNumber(dashboard?.recent_24h_count || 0, { maximumFractionDigits: 0 })}</div>
-      <div class="metric-label">rapid swaps captured in the last 24 hours</div>
-    </DataCard>
-
-    <DataCard title="24h Volume" height="130px">
-      <div class="metric-value">{formatUSDCompact(dashboard?.recent_24h_volume_usd || 0)}</div>
-      <div class="metric-label">estimated source-side USD volume</div>
-    </DataCard>
-
-    <DataCard title="Largest Recorded" height="130px">
-      <div class="metric-value">{formatUSDCompact(topSwaps[0]?.input_estimated_usd || 0)}</div>
-      <div class="metric-label">{topSwaps[0] ? formatPair(topSwaps[0]) : 'Waiting for first recorded rapid swap'}</div>
-    </DataCard>
+    </span>
   </div>
 
-  <div class="tracker-banner" class:warning={Boolean(dashboardError)}>
-    {#if dashboard}
-      <strong>Recorder status:</strong>
-      {backendMeta?.last_run_status || 'unknown'} | {formatFreshness(backendMeta?.freshness_seconds)}
-      {#if trackerStart}
-        | tracking since {formatDateTime(trackerStart)}
-      {/if}
-      {#if !dashboard?.tracker_warmup_complete}
-        | 24h history is still warming up
-      {/if}
-    {:else if dashboardError}
-      <strong>Recorder unavailable:</strong> {dashboardError}
-    {/if}
+  <!-- Metrics strip -->
+  <div class="metrics">
+    <div class="metric">
+      <div class="metric-val">{formatNumber(dashboard?.recent_24h_count || 0, { maximumFractionDigits: 0 })}</div>
+      <div class="metric-key">24H COUNT</div>
+    </div>
+    <div class="metric">
+      <div class="metric-val">{formatUSDCompact(dashboard?.recent_24h_volume_usd || 0)}</div>
+      <div class="metric-key">24H VOLUME</div>
+    </div>
+    <div class="metric">
+      <div class="metric-val accent">{formatUSDCompact(dashboard?.cumulative_volume_usd || 0)}</div>
+      <div class="metric-key">ALL-TIME VOLUME</div>
+    </div>
+    <div class="metric">
+      <div class="metric-val">{topSwaps[0] ? formatUSDCompact(topSwaps[0]?.input_estimated_usd || 0) : '--'}</div>
+      <div class="metric-key">LARGEST SWAP</div>
+    </div>
+    <div class="metric">
+      <div class="metric-val amber">{formatTimeSaved(dashboard?.time_saved_seconds || 0)}</div>
+      <div class="metric-key">TIME SAVED</div>
+    </div>
   </div>
 
-  {#if backendConfigError}
-    <div class="notice-card">
-      <strong>Backend note:</strong> the live section works without extra config, but recorded rapid swaps need the Supabase endpoint configured. Reuse `VITE_NODEOP_API_BASE` and `VITE_NODEOP_API_KEY`, or set the rapid-swaps-specific env vars.
-    </div>
-  {/if}
-
-  <section class="panel">
-    <div class="panel-header">
-      <div>
-        <h3>Live Active Rapid Swaps</h3>
-        <p>Current streaming swaps where `interval = 0`.</p>
-      </div>
-    </div>
-
-    {#if loading}
-      <div class="empty-state">Loading live rapid swaps...</div>
-    {:else if liveError}
-      <div class="empty-state error">{liveError}</div>
-    {:else if liveRapidSwaps.length === 0}
-      <div class="empty-state">No active rapid swaps at the moment.</div>
-    {:else}
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Pair</th>
-              <th>Input</th>
-              <th>Est. USD</th>
-              <th>Progress</th>
-              <th>Last Height</th>
-              <th>Tx</th>
-            </tr>
-          </thead>
-          <tbody>
-            {#each liveRapidSwaps as row}
-              <tr>
-                <td>{formatPair(row)}</td>
-                <td>{formatAmount(row.input_amount_base)} {formatAsset(row.source_asset)}</td>
-                <td>{formatUSD(row.input_estimated_usd || 0)}</td>
-                <td>{row.streaming_count}/{row.streaming_quantity}</td>
-                <td>{formatNumber(row.last_height || 0, { maximumFractionDigits: 0 })}</td>
-                <td><a href={getTxUrl(row.tx_id)} target="_blank" rel="noreferrer">{row.tx_id.slice(0, 10)}...</a></td>
-              </tr>
-            {/each}
-          </tbody>
-        </table>
-      </div>
-    {/if}
-  </section>
-
-  <section class="panel">
-    <div class="panel-header">
-      <div>
-        <h3>Top 20 Largest Recorded Rapid Swaps</h3>
-        <p>Ranked by estimated source-side USD size from the recorder dataset.</p>
-      </div>
+  <!-- Top 20 table -->
+  <section class="data-section">
+    <div class="section-head">
+      <h3>TOP RECORDED</h3>
+      <span class="section-sub">Ranked by estimated USD size</span>
     </div>
 
     {#if loading && !dashboard}
-      <div class="empty-state">Loading recorded rapid swaps...</div>
+      <div class="empty">Loading...</div>
     {:else if dashboardError}
-      <div class="empty-state error">{dashboardError}</div>
+      <div class="empty err-text">{dashboardError}</div>
     {:else if topSwaps.length === 0}
-      <div class="empty-state">No rapid swaps have been recorded yet. The tracker starts filling after the scheduler runs.</div>
+      <div class="empty">No rapid swaps recorded yet.</div>
     {:else}
       <div class="table-wrap">
         <table>
           <thead>
             <tr>
-              <th>#</th>
-              <th>When</th>
-              <th>Pair</th>
-              <th>Input</th>
-              <th>Est. USD</th>
-              <th>Subs</th>
-              <th>Tx</th>
+              <th class="col-rank">#</th>
+              <th class="col-when">WHEN</th>
+              <th class="col-pair">PAIR</th>
+              <th class="col-input">INPUT</th>
+              <th class="col-usd right">USD</th>
+              <th class="col-subs right">SUBS</th>
+              <th class="col-blocks right">BLOCKS</th>
+              <th class="col-tx">TX</th>
             </tr>
           </thead>
           <tbody>
             {#each topSwaps as row, index}
               <tr>
-                <td>{index + 1}</td>
-                <td>{formatDateTime(row.action_date)}</td>
-                <td>{formatPair(row)}</td>
-                <td>{formatAmount(row.input_amount_base)} {formatAsset(row.source_asset)}</td>
-                <td>{formatUSD(row.input_estimated_usd || 0)}</td>
-                <td>{row.streaming_count}/{row.streaming_quantity}</td>
-                <td><a href={getTxUrl(row.tx_id)} target="_blank" rel="noreferrer">{row.tx_id.slice(0, 10)}...</a></td>
+                <td class="col-rank mono dim">{index + 1}</td>
+                <td class="col-when mono">{formatDateTime(row.action_date)}</td>
+                <td class="col-pair">{formatPair(row)}</td>
+                <td class="col-input mono">{formatAmount(row.input_amount_base)} <span class="dim">{formatAsset(row.source_asset)}</span></td>
+                <td class="col-usd mono right accent">{formatUSD(row.input_estimated_usd || 0)}</td>
+                <td class="col-subs mono right">{row.streaming_count}/{row.streaming_quantity}</td>
+                <td class="col-blocks mono right">{row.blocks_used || '-'}</td>
+                <td class="col-tx"><a href={getTxUrl(row.tx_id)} target="_blank" rel="noreferrer">{row.tx_id.slice(0, 8)}</a></td>
               </tr>
             {/each}
           </tbody>
@@ -281,44 +243,43 @@
     {/if}
   </section>
 
-  <section class="panel">
-    <div class="panel-header">
-      <div>
-        <h3>Recorded Rapid Swaps in the Past 24 Hours</h3>
-        <p>Newest first. This window becomes complete after the recorder has been running for 24 hours.</p>
-      </div>
+  <!-- 24h feed -->
+  <section class="data-section">
+    <div class="section-head">
+      <h3>LAST 24 HOURS</h3>
+      <span class="section-sub">Newest first</span>
     </div>
 
     {#if loading && !dashboard}
-      <div class="empty-state">Loading the 24-hour feed...</div>
+      <div class="empty">Loading...</div>
     {:else if dashboardError}
-      <div class="empty-state error">{dashboardError}</div>
+      <div class="empty err-text">{dashboardError}</div>
     {:else if recentSwaps.length === 0}
-      <div class="empty-state">No rapid swaps have been recorded in the rolling 24-hour window yet.</div>
+      <div class="empty">No rapid swaps in the rolling 24h window.</div>
     {:else}
       <div class="table-wrap">
         <table>
           <thead>
             <tr>
-              <th>When</th>
-              <th>Pair</th>
-              <th>Input</th>
-              <th>Est. USD</th>
-              <th>Interval</th>
-              <th>Subs</th>
-              <th>Tx</th>
+              <th class="col-when">WHEN</th>
+              <th class="col-pair">PAIR</th>
+              <th class="col-input">INPUT</th>
+              <th class="col-usd right">USD</th>
+              <th class="col-subs right">SUBS</th>
+              <th class="col-blocks right">BLOCKS</th>
+              <th class="col-tx">TX</th>
             </tr>
           </thead>
           <tbody>
             {#each recentSwaps as row}
               <tr>
-                <td>{formatDateTime(row.action_date)}</td>
-                <td>{formatPair(row)}</td>
-                <td>{formatAmount(row.input_amount_base)} {formatAsset(row.source_asset)}</td>
-                <td>{formatUSD(row.input_estimated_usd || 0)}</td>
-                <td>{row.streaming_interval}</td>
-                <td>{row.streaming_count}/{row.streaming_quantity}</td>
-                <td><a href={getTxUrl(row.tx_id)} target="_blank" rel="noreferrer">{row.tx_id.slice(0, 10)}...</a></td>
+                <td class="col-when mono">{formatDateTime(row.action_date)}</td>
+                <td class="col-pair">{formatPair(row)}</td>
+                <td class="col-input mono">{formatAmount(row.input_amount_base)} <span class="dim">{formatAsset(row.source_asset)}</span></td>
+                <td class="col-usd mono right accent">{formatUSD(row.input_estimated_usd || 0)}</td>
+                <td class="col-subs mono right">{row.streaming_count}/{row.streaming_quantity}</td>
+                <td class="col-blocks mono right">{row.blocks_used || '-'}</td>
+                <td class="col-tx"><a href={getTxUrl(row.tx_id)} target="_blank" rel="noreferrer">{row.tx_id.slice(0, 8)}</a></td>
               </tr>
             {/each}
           </tbody>
@@ -329,95 +290,178 @@
 </div>
 
 <style>
-  @import '$lib/styles/variables.css';
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&family=DM+Sans:wght@400;500;600;700&display=swap');
 
-  .rapid-swaps-page {
+  .rs {
     width: 100%;
     display: flex;
     flex-direction: column;
-    gap: 18px;
+    gap: 0;
+    font-family: 'DM Sans', -apple-system, sans-serif;
+    color: #c8c8c8;
   }
 
-  .header-actions {
-    color: rgba(255, 255, 255, 0.9);
-    font-size: 13px;
-    font-weight: 600;
+  /* ---- STATUS BAR ---- */
+  .status-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 16px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    color: #666;
+    border-bottom: 1px solid #1a1a1a;
+    background: #0a0a0a;
   }
 
-  .refreshing {
-    white-space: nowrap;
+  .status-dot {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #333;
+    margin-right: 6px;
+    vertical-align: middle;
   }
 
-  .metrics-grid {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 14px;
+  .status-dot.ok {
+    background: #00cc66;
+    box-shadow: 0 0 6px #00cc6644;
   }
 
-  .metric-value {
-    font-size: 28px;
-    font-weight: 800;
-    color: var(--text-primary);
-    margin-bottom: 8px;
-    letter-spacing: -0.03em;
+  .status-dot.err {
+    background: #cc3333;
+    box-shadow: 0 0 6px #cc333344;
   }
 
-  .metric-label {
-    color: var(--text-muted);
-    font-size: 13px;
-    line-height: 1.4;
+  .sep {
+    color: #333;
+    margin: 0 6px;
   }
 
-  .tracker-banner,
-  .notice-card,
-  .panel {
-    background: var(--gradient-card);
-    border: 1px solid var(--border-default);
-    box-shadow: var(--shadow-card);
-    border-radius: var(--radius-lg);
+  .warn-text {
+    color: #b8860b;
   }
 
-  .tracker-banner,
-  .notice-card {
-    padding: 14px 16px;
-    color: var(--text-secondary);
-    font-size: 14px;
-    line-height: 1.5;
-  }
-
-  .tracker-banner.warning {
-    border-color: rgba(255, 111, 97, 0.45);
-  }
-
-  .notice-card {
-    border-color: rgba(102, 126, 234, 0.45);
-  }
-
-  .panel {
-    overflow: hidden;
-  }
-
-  .panel-header {
-    padding: 18px 20px 14px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  .status-right {
+    color: #555;
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    gap: 0;
+  }
+
+  .ws-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
+
+  .ws-dot {
+    display: inline-block;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: #333;
+  }
+
+  .ws-ok .ws-dot {
+    background: #00cc66;
+    box-shadow: 0 0 4px #00cc6644;
+    animation: pulse-dot 2s infinite;
+  }
+
+  .ws-ok {
+    color: #00cc66;
+  }
+
+  .ws-down .ws-dot {
+    background: #cc3333;
+  }
+
+  .ws-down {
+    color: #cc3333;
+  }
+
+  @keyframes pulse-dot {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  /* ---- METRICS ---- */
+  .metrics {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    border-bottom: 1px solid #1a1a1a;
+    background: #0d0d0d;
+  }
+
+  .metric {
+    padding: 20px 16px;
+    border-right: 1px solid #1a1a1a;
+    text-align: center;
+  }
+
+  .metric:last-child {
+    border-right: none;
+  }
+
+  .metric-val {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 26px;
+    font-weight: 700;
+    color: #e0e0e0;
+    letter-spacing: -0.02em;
+    line-height: 1;
+    margin-bottom: 8px;
+  }
+
+  .metric-val.accent {
+    color: #00cc66;
+  }
+
+  .metric-val.amber {
+    color: #d4a017;
+  }
+
+  .metric-key {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    color: #555;
+    text-transform: uppercase;
+  }
+
+  /* ---- DATA SECTIONS ---- */
+  .data-section {
+    border-bottom: 1px solid #1a1a1a;
+  }
+
+  .section-head {
+    display: flex;
+    align-items: baseline;
     gap: 12px;
+    padding: 14px 16px 10px;
+    background: #0a0a0a;
+    border-bottom: 1px solid #141414;
   }
 
-  .panel-header h3 {
+  .section-head h3 {
     margin: 0;
-    font-size: 18px;
-    color: var(--text-primary);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    color: #888;
   }
 
-  .panel-header p {
-    margin: 6px 0 0;
-    color: var(--text-muted);
-    font-size: 13px;
+  .section-sub {
+    font-size: 11px;
+    color: #444;
   }
 
+  /* ---- TABLES ---- */
   .table-wrap {
     overflow-x: auto;
   }
@@ -425,74 +469,119 @@
   table {
     width: 100%;
     border-collapse: collapse;
-    min-width: 760px;
-  }
-
-  th,
-  td {
-    text-align: left;
-    padding: 14px 20px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-    font-size: 14px;
-    vertical-align: middle;
+    min-width: 700px;
   }
 
   th {
-    color: var(--text-muted);
-    font-size: 12px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
     text-transform: uppercase;
-    letter-spacing: 0.08em;
-    font-weight: 700;
+    color: #444;
+    text-align: left;
+    padding: 8px 16px;
+    border-bottom: 1px solid #1a1a1a;
+    background: #0a0a0a;
+    position: sticky;
+    top: 0;
+  }
+
+  th.right {
+    text-align: right;
   }
 
   td {
-    color: var(--text-secondary);
+    padding: 10px 16px;
+    font-size: 13px;
+    border-bottom: 1px solid #111;
+    color: #aaa;
+    vertical-align: middle;
+  }
+
+  .mono {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+  }
+
+  .dim {
+    color: #555;
+  }
+
+  .right {
+    text-align: right;
+  }
+
+  .accent {
+    color: #00cc66;
+  }
+
+  tbody tr {
+    background: #0d0d0d;
+    transition: background 0.1s;
   }
 
   tbody tr:hover {
-    background: rgba(255, 255, 255, 0.02);
+    background: #141414;
   }
 
   a {
-    color: #8fb8ff;
+    color: #5588cc;
     text-decoration: none;
-    font-weight: 600;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
   }
 
   a:hover {
+    color: #77aaee;
     text-decoration: underline;
   }
 
-  .empty-state {
-    padding: 24px 20px;
-    color: var(--text-muted);
-    font-size: 14px;
+  /* ---- EMPTY / ERROR ---- */
+  .empty {
+    padding: 24px 16px;
+    color: #444;
+    font-size: 13px;
+    font-family: 'JetBrains Mono', monospace;
   }
 
-  .empty-state.error {
-    color: #ff8b8b;
+  .err-text {
+    color: #cc4444;
   }
 
-  @media (max-width: 1100px) {
-    .metrics-grid {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
+  /* ---- RESPONSIVE ---- */
+  @media (max-width: 900px) {
+    .metrics {
+      grid-template-columns: repeat(3, 1fr);
+    }
+
+    .metric:nth-child(4),
+    .metric:nth-child(5) {
+      border-top: 1px solid #1a1a1a;
     }
   }
 
-  @media (max-width: 720px) {
-    .metrics-grid {
-      grid-template-columns: 1fr;
+  @media (max-width: 600px) {
+    .metrics {
+      grid-template-columns: repeat(2, 1fr);
     }
 
-    .panel-header,
-    th,
-    td {
-      padding-left: 14px;
-      padding-right: 14px;
+    .metric {
+      padding: 14px 12px;
     }
 
-    .metric-value {
-      font-size: 24px;
+    .metric-val {
+      font-size: 20px;
+    }
+
+    .status-bar {
+      font-size: 10px;
+      flex-wrap: wrap;
+      gap: 4px;
+    }
+
+    th, td {
+      padding: 8px 10px;
     }
   }
 </style>

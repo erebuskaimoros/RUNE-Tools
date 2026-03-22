@@ -25,10 +25,11 @@ export {
  */
 export const ENDPOINTS = {
   thornode: {
+    thorchain: 'https://thornode.thorchain.network',
     liquify: 'https://thornode.thorchain.liquify.com',
     ninerealms: 'https://thornode.ninerealms.com',
     archive: 'https://thornode-archive.ninerealms.com'
   },
-  midgard: 'https://midgard.ninerealms.com/v2',
+  midgard: 'https://midgard.thorchain.network/v2',
   coingecko: 'https://api.coingecko.com/api/v3'
 };

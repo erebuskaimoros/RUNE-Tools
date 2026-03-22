@@ -2,14 +2,9 @@
  * THORNode API Client
  *
  * Provider Strategy:
- * - Liquify (thornode.thorchain.liquify.com): Updates every 6 seconds (per block)
- *   Use for real-time data like prices, block status, live feeds
- *
- * - Nine Realms (thornode.ninerealms.com): Updates ~once per minute
- *   More stable, use as fallback after Liquify failures
- *
- * - Archive (thornode-archive.ninerealms.com): For historical queries
- *   Use when fetching data at specific block heights
+ * - THORChain Network (thornode.thorchain.network): Official endpoint, generous rate limits
+ * - Liquify (thornode.thorchain.liquify.com): Fallback, updates every 6 seconds
+ * - Nine Realms (thornode.ninerealms.com): Second fallback
  */
 
 import { fromBaseUnit } from '../utils/blockchain.js';
@@ -18,25 +13,31 @@ import { fromBaseUnit } from '../utils/blockchain.js';
  * API Provider configurations
  */
 export const PROVIDERS = {
+  thorchain: {
+    name: 'thorchain',
+    base: 'https://thornode.thorchain.network',
+    updateFrequency: 6000,
+    priority: 1
+  },
   liquify: {
     name: 'liquify',
     base: 'https://thornode.thorchain.liquify.com',
-    updateFrequency: 6000, // 6 seconds
-    priority: 1
+    updateFrequency: 6000,
+    priority: 2
   },
   ninerealms: {
     name: 'ninerealms',
     base: 'https://thornode.ninerealms.com',
-    headers: { 'x-client-id': 'RuneTools' },
-    updateFrequency: 60000, // ~1 minute
-    priority: 2
+    headers: { 'x-client-id': 'BooneTools' },
+    updateFrequency: 60000,
+    priority: 3
   },
   archive: {
     name: 'archive',
     base: 'https://thornode-archive.ninerealms.com',
-    headers: { 'x-client-id': 'RuneTools' },
+    headers: { 'x-client-id': 'BooneTools' },
     supportsBlockHeight: true,
-    priority: 3
+    priority: 4
   }
 };
 
@@ -46,52 +47,44 @@ export const PROVIDERS = {
 class ThorNodeClient {
   constructor() {
     this.failureCount = {
+      thorchain: 0,
       liquify: 0,
       ninerealms: 0
     };
     this.maxFailures = 3;
     this.cache = new Map();
-    this.cacheTTL = 5000; // 5 seconds default cache
+    this.cacheTTL = 5000;
   }
 
-  /**
-   * Select the appropriate provider based on options
-   * @param {Object} options - Request options
-   * @returns {Object} Selected provider config
-   */
   selectProvider(options = {}) {
     const { blockHeight, realtime = true, preferNinerealms = false } = options;
 
-    // Archive required for historical queries with block height
     if (blockHeight) {
       return PROVIDERS.archive;
     }
 
-    // If explicitly preferring Nine Realms (for less frequent updates)
     if (preferNinerealms) {
       return PROVIDERS.ninerealms;
     }
 
-    // For real-time data, prefer Liquify unless it's been failing
-    if (realtime && this.failureCount.liquify < this.maxFailures) {
+    // Prefer thorchain.network, then liquify, then ninerealms
+    if (this.failureCount.thorchain < this.maxFailures) {
+      return PROVIDERS.thorchain;
+    }
+
+    if (this.failureCount.liquify < this.maxFailures) {
       return PROVIDERS.liquify;
     }
 
-    // Fall back to Nine Realms
     return PROVIDERS.ninerealms;
   }
 
-  /**
-   * Clear the cache (useful when you want fresh data)
-   */
   clearCache() {
     this.cache.clear();
   }
 
-  /**
-   * Reset failure counters (useful after a successful request)
-   */
   resetFailures() {
+    this.failureCount.thorchain = 0;
     this.failureCount.liquify = 0;
     this.failureCount.ninerealms = 0;
   }
@@ -129,8 +122,8 @@ class ThorNodeClient {
     const providers = blockHeight
       ? [PROVIDERS.archive]
       : preferNinerealms
-        ? [PROVIDERS.ninerealms, PROVIDERS.liquify]
-        : [PROVIDERS.liquify, PROVIDERS.ninerealms];
+        ? [PROVIDERS.ninerealms, PROVIDERS.thorchain, PROVIDERS.liquify]
+        : [PROVIDERS.thorchain, PROVIDERS.liquify, PROVIDERS.ninerealms];
 
     let lastError = null;
 
@@ -160,11 +153,8 @@ class ThorNodeClient {
           this.cache.set(cacheKey, { data, timestamp: Date.now() });
         }
 
-        // Reset failure count on success
-        if (provider.name === 'liquify') {
-          this.failureCount.liquify = 0;
-        } else if (provider.name === 'ninerealms') {
-          this.failureCount.ninerealms = 0;
+        if (provider.name in this.failureCount) {
+          this.failureCount[provider.name] = 0;
         }
 
         return data;
@@ -172,11 +162,8 @@ class ThorNodeClient {
         lastError = error;
         console.warn(`THORNode fetch failed for ${provider.name}${path}:`, error.message);
 
-        // Increment failure count
-        if (provider.name === 'liquify') {
-          this.failureCount.liquify++;
-        } else if (provider.name === 'ninerealms') {
-          this.failureCount.ninerealms++;
+        if (provider.name in this.failureCount) {
+          this.failureCount[provider.name]++;
         }
       }
     }
@@ -326,6 +313,7 @@ export { ThorNodeClient };
 
 // Export provider endpoints for direct use if needed
 export const THORNODE_ENDPOINTS = {
+  thorchain: PROVIDERS.thorchain.base,
   liquify: PROVIDERS.liquify.base,
   ninerealms: PROVIDERS.ninerealms.base,
   archive: PROVIDERS.archive.base

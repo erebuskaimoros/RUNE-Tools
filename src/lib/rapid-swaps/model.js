@@ -89,8 +89,12 @@ export function isRapidSwapAction(action) {
     return false;
   }
 
+  if (action?.status !== 'success') {
+    return false;
+  }
+
   const details = getRapidSwapStreamingDetails(action);
-  return details.interval === 0;
+  return details.interval === 0 && details.quantity > 1;
 }
 
 function pickPrimaryCoin(legs, options = {}) {
@@ -121,6 +125,32 @@ export function getRapidSwapInputCoin(action) {
     action?.metadata?.swap?.streamingSwapMeta?.depositedCoin ||
     null
   );
+}
+
+const MEMO_CHAIN_MAP = {
+  'b': 'BTC.BTC', 'BTC': 'BTC.BTC',
+  'e': 'ETH.ETH', 'ETH': 'ETH.ETH',
+  'r': 'THOR.RUNE', 'THOR': 'THOR.RUNE',
+  'g': 'GAIA.ATOM', 'GAIA': 'GAIA.ATOM',
+  'd': 'DOGE.DOGE', 'DOGE': 'DOGE.DOGE',
+  'l': 'LTC.LTC', 'LTC': 'LTC.LTC',
+  's': 'BSC.BNB', 'BSC': 'BSC.BNB',
+  'c': 'BCH.BCH', 'BCH': 'BCH.BCH',
+  'a': 'AVAX.AVAX', 'AVAX': 'AVAX.AVAX',
+  'n': 'BASE.ETH', 'BASE': 'BASE.ETH',
+  'j': 'XRP.XRP', 'XRP': 'XRP.XRP',
+  't': 'TRON.TRX', 'TRON': 'TRON.TRX',
+  'o': 'SOL.SOL', 'SOL': 'SOL.SOL'
+};
+
+function targetAssetFromMemo(memo) {
+  const parts = String(memo || '').split(':');
+  if (parts.length < 2) return '';
+  const target = parts[1];
+  // If it contains a dot or dash, it's a full asset identifier (e.g. ETH.USDC-0x...)
+  if (target.includes('.') || target.includes('-')) return target;
+  // Otherwise it's a shorthand chain identifier
+  return MEMO_CHAIN_MAP[target] || '';
 }
 
 export function getRapidSwapOutputCoin(action) {
@@ -205,6 +235,19 @@ function roundUsd(value) {
   return Math.round(value * 100) / 100;
 }
 
+function computeBlocksUsed(action) {
+  const startHeight = Number(action?.height) || 0;
+  const lastHeight = Number(action?.metadata?.swap?.streamingSwapMeta?.lastHeight) || 0;
+  if (startHeight > 0 && lastHeight >= startHeight) {
+    return lastHeight - startHeight + 1;
+  }
+  const outHeight = Number(action?.out?.[0]?.height) || 0;
+  if (startHeight > 0 && outHeight >= startHeight) {
+    return outHeight - startHeight + 1;
+  }
+  return 0;
+}
+
 export function normalizeRapidSwapAction(action, options = {}) {
   if (!isRapidSwapAction(action)) {
     return null;
@@ -227,7 +270,7 @@ export function normalizeRapidSwapAction(action, options = {}) {
     status: 'completed',
     tx_status: String(action?.status || ''),
     source_asset: String(inputCoin?.asset || ''),
-    target_asset: String(outputCoin?.asset || ''),
+    target_asset: String(outputCoin?.asset || '') || targetAssetFromMemo(action?.metadata?.swap?.memo),
     input_amount_base: String(inputCoin?.amount || '0'),
     output_amount_base: String(outputCoin?.amount || '0'),
     input_estimated_usd: roundUsd(estimateCoinUsd(inputCoin, options.priceIndex)),
@@ -238,6 +281,7 @@ export function normalizeRapidSwapAction(action, options = {}) {
     streaming_interval: streaming.interval,
     streaming_quantity: streaming.quantity,
     streaming_count: streaming.count,
+    blocks_used: computeBlocksUsed(action),
     affiliate: String(action?.metadata?.swap?.affiliateAddress || ''),
     source_address: String(action?.in?.[0]?.address || ''),
     destination_address: String(primaryOutLeg?.address || action?.out?.[0]?.address || ''),

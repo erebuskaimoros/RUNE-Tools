@@ -51,20 +51,13 @@
   const pages = [
     {
       content: {
-        type: 'desktop-app',
-        href: "/desktop",
-        text: "NEW DESKTOP APP - Rune Tools Wallet for MacOS and Windows"
-      }
-    },
-    {
-      content: {
         type: 'links',
         elements: [
-          { href: "https://github.com/cow9r/RUNE-Tools", text: "Source" },
+          { href: "https://github.com/erebuskaimoros/RUNE-Tools", text: "Source" },
           { text: " by " },
-          { href: "https://x.com/familiarcow", text: "familiarcow" },
-          { emoji: true },
-          { href: "https://x.com/RuneDotTools", text: "Follow on 𝕏" },
+          { href: "https://x.com/boonew", text: "boonew" },
+          { text: " | " },
+          { href: "https://thordex.eth.limo/?ref=boone", text: "Swap on THORDEX" },
           { type: 'sound' }
         ]
       }

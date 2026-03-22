@@ -23,6 +23,7 @@
   } from './node-operator/leaderboard.js';
   import {
     hasThorProvider,
+    clearActiveThorProvider,
     requestAccounts,
     depositThorTx
   } from './node-operator/wallet.js';
@@ -330,8 +331,13 @@
   }
 
   async function connectWallet() {
+    walletSupported = hasThorProvider();
+
     if (!walletSupported) {
-      showToastMessage('No THOR wallet provider detected. Install CTRL/XDEFI and retry.', 'error');
+      showToastMessage(
+        'No THOR wallet provider detected (`window.xfi.thorchain` / `window.thorchain`). Open CTRL/XDEFI/Vultisig and retry.',
+        'error'
+      );
       return;
     }
 
@@ -344,6 +350,7 @@
       await refreshWalletBalance();
       showToastMessage('Wallet connected', 'success');
     } catch (error) {
+      clearActiveThorProvider();
       walletConnected = false;
       walletAddress = '';
       walletBalanceRune = 0;
@@ -642,7 +649,7 @@
         </span>
       </div>
       <div class="wallet-row">
-        <button on:click={connectWallet} disabled={walletBusy || !walletSupported}>
+        <button on:click={connectWallet} disabled={walletBusy}>
           {#if walletBusy}
             Connecting...
           {:else if walletConnected}
@@ -659,7 +666,9 @@
         {/if}
       </div>
       {#if !walletSupported}
-        <small class="warn">No `window.xfi.thorchain` provider detected.</small>
+        <small class="warn">
+          No THOR provider detected. Expected `window.xfi.thorchain`, `window.thorchain`, or `window.vultisig.thorchain`.
+        </small>
       {/if}
     </div>
 

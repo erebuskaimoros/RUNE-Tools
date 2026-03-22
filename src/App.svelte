@@ -12,6 +12,14 @@
   import { writable } from 'svelte/store';
   import Banner from './lib/Banner.svelte';
   
+  const BASE_PATH = (import.meta.env.BASE_URL || '/').replace(/\/$/, '');
+
+  function stripBase(pathname) {
+    return BASE_PATH && pathname.startsWith(BASE_PATH)
+      ? pathname.slice(BASE_PATH.length) || '/'
+      : pathname;
+  }
+
   // Add store for starred apps
   const STARRED_APPS_KEY = 'runetools-starred-apps';
   const starredApps = writable(new Set(JSON.parse(localStorage.getItem(STARRED_APPS_KEY) || '[]')));
@@ -33,266 +41,16 @@
   let loadedComponent = null;
   let isLoadingApp = false;
 
-  // Replace the existing apps array with dynamic imports
-  const apps = [
-    {
-      name: "Desktop App",
-      component: () => import("./lib/DesktopApp.svelte"),
-      icon: "🖥️",
-      path: "desktop",
-      description: "Download the native RUNE Tools wallet for macOS and Windows",
-      special: "gold"
-    },
-    { 
-      name: "Swap Quote", 
-      component: () => import("./lib/SwapEstimator.svelte"), 
-      icon: "🔄", 
-      path: "swap", 
-      description: "Get real time THORChain swap quotes" 
-    },
-    { 
-      name: "Bond Tracker", 
-      component: () => import("./lib/BondTracker.svelte"), 
-      icon: "🔗", 
-      path: "bond", 
-      description: "Monitor your THORChain node rewards" 
-    },
-    {
-      name: "Node Operator",
-      component: () => import("./lib/NodeOperator.svelte"),
-      icon: "🛠️",
-      path: "node-operator",
-      description: "Manage your THORChain node: bond, unbond, track performance, and leaderboard"
-    },
-    {
-      name: "Voting",
-      component: () => import("./lib/Voting.svelte"),
-      icon: "🗳️",
-      path: "voting",
-      description: "Check THORChain's active mimir votes"
-    },
-    {
-      name: "Solana Providers",
-      component: () => import("./lib/SolanaProviders.svelte"),
-      icon: "/assets/chains/SOL.svg",
-      path: "solana",
-      description: "Track Solana RPC provider diversity among THORChain nodes"
-    },
-    { 
-      name: "Nodes", 
-      component: () => import("./lib/Nodes.svelte"), 
-      icon: "📡", 
-      path: "nodes", 
-      description: "Explore THORChain's Nodes"
-    },
-    { 
-      name: "Earnings", 
-      component: () => import("./lib/Earnings.svelte"), 
-      icon: "💰", 
-      path: "earnings", 
-      description: "Check the THORChain protocol's earnings" 
-        },
-    { 
-      name: "Constants and Mimirs", 
-      component: () => import("./lib/Constants.svelte"), 
-      icon: "📚", 
-      path: "constants", 
-      description: "View THORChain's network parameters and settings" 
-    },
+  const rapidSwapsApp = {
+    name: "Rapid Swaps",
+    component: () => import("./lib/RapidSwaps.svelte"),
+    icon: "⚡",
+    path: "rapid-swaps",
+    description: "Track live rapid streams plus the largest and latest recorded rapid swaps"
+  };
 
-    { 
-      name: "Incentive Pendulum", 
-      component: () => import("./lib/IncentivePendulum.svelte"), 
-      icon: "⚖️", 
-      path: "pendulum", 
-      description: "Check THORChain's incentive pendulum balance" 
-    },
-    { 
-      name: "Churn Countdown", 
-      component: () => import("./lib/ChurnCountdown.svelte"), 
-      icon: "⏳", 
-      path: "churn", 
-      description: "Countdown to the next validator churn" 
-    },
-    { 
-      name: "Supply Tracker", 
-      component: () => import("./lib/Supply.svelte"), 
-      icon: "🔥", 
-      path: "supply", 
-      description: "Track RUNE supply and burned tokens" 
-    },
-    { 
-      name: "Price Checker", 
-      component: () => import("./lib/PriceChecker.svelte"), 
-      icon: "🏷️", 
-      path: "prices", 
-      description: "Check pool prices and compare prices of similar assets" 
-    },
-    { 
-      name: "Oracle Prices", 
-      component: () => import("./lib/OraclePrice.svelte"), 
-      icon: "🔮", 
-      path: "oracle", 
-      description: "Compare THORChain oracle prices vs pool prices" 
-    },
-    { 
-      name: "Vaults", 
-      component: () => import("./lib/Vaults.svelte"), 
-      icon: "🔒", 
-      path: "vaults", 
-      description: "Inspect THORChain's native asset vaults" 
-    },
-    { 
-      name: "Liquidity Cap", 
-      component: () => import("./lib/LiquidityCap.svelte"), 
-      icon: "🧢", 
-      path: "liquidity-cap", 
-                        description: "Check THORChain's liquidity cap"
-    },
-    { 
-      name: "LP Checker", 
-      component: () => import("./lib/LiquidityProviders.svelte"), 
-      icon: "💧", 
-      path: "lp", 
-      description: "Check your THORChain LP positions" 
-    },
-    { 
-      name: "Version", 
-      component: () => import("./lib/Version.svelte"), 
-      icon: "🔧", 
-      path: "version", 
-      description: "Check the current THORNode version adoption" 
-    },
-    { 
-      name: "Inbound Addresses", 
-      component: () => import("./lib/InboundAddresses.svelte"), 
-      icon: "📍", 
-      path: "inbound", 
-      description: "Find THORChain's inbound vault addresses" 
-    },
-    { 
-      name: "Swapper Clout", 
-      component: () => import("./lib/SwapperClout.svelte"), 
-      icon: "🏆", 
-      path: "clout", 
-      description: "Check your Swapper Clout" 
-    },
-    { 
-      name: "Affiliates", 
-      component: () => import("./lib/Affiliates.svelte"), 
-      icon: "🤝", 
-      path: "affiliate", 
-      description: "Track THORChain affiliate payout status" 
-    },
-    { 
-      name: "Token Whitelist", 
-      component: () => import("./lib/TokenWhitelist.svelte"), 
-      icon: "📝", 
-      path: "whitelist", 
-      description: "View THORChain's whitelisted tokens and pools" 
-    },
-    { 
-      name: "Treasury", 
-      component: () => import("./lib/Treasury.svelte"), 
-      icon: "🏦", 
-      path: "treasury", 
-      description: "Track THORChain's treasury balances and flows" 
-    },
-    { 
-      name: "Outbound Fees", 
-      component: () => import("./lib/OutboundFees.svelte"), 
-      icon: "📤", 
-      path: "outbound-fees", 
-      description: "View THORChain outbound fees and dynamic multipliers" 
-    },
-        { 
-      name: "Thorchad", 
-      component: () => import("./lib/Thorchad.svelte"), 
-      icon: "🧙‍♂️", 
-      path: "thorchad", 
-      description: "THORChad your profile picture" 
-    },
-    {
-      name: "POL Tracker",
-      component: () => import("./lib/POL.svelte"),
-      icon: "🏛️",
-      path: "pol",
-      description: "Track THORChain's protocol-owned liquidity positions"
-    },
-    { 
-      name: "Trade on THORSwap", 
-      icon: "/assets/thorswap.png",
-      path: "thorswap", 
-      description: "Trade RUNE and other native assets on THORSwap.", 
-            externalUrl: "https://app.thorswap.finance/swap/BTC.BTC_THOR.RUNE?ref=-"
-    },
-    { 
-      name: "TCY Claims", 
-      component: () => import("./lib/TCYClaims.svelte"), 
-      icon: "🪙", 
-      path: "tcy-claims", 
-      description: "Check TCY claims" 
-    },
-    {
-      name: "TCY",
-      component: () => import("./lib/TCY.svelte"),
-      icon: "/assets/coins/TCY.svg",
-      path: "tcy",
-      description: "Track your staked TCY and yield"
-    },
-    { 
-      name: "Trade Assets", 
-      component: () => import("./lib/TradeAssets.svelte"), 
-      icon: "💼", 
-      path: "trade-assets", 
-      description: "Track THORChain's trade assets and vault balances" 
-    },
-    {
-      name: "Orderbooks",
-      component: () => import("./lib/Orderbooks.svelte"),
-      icon: "📊",
-      path: "orderbooks",
-      description: "Monitor active limit swaps (orderbooks) on THORChain stagenet"
-    },
-    {
-      name: "Rapid Swaps",
-      component: () => import("./lib/RapidSwaps.svelte"),
-      icon: "⚡",
-      path: "rapid-swaps",
-      description: "Track live rapid streams plus the largest and latest recorded rapid swaps"
-    },
-    {
-      name: "Secured Assets",
-      component: () => import("./lib/SecuredAssets.svelte"),
-      icon: "🧪",
-      path: "secured-assets",
-      description: "Track THORChain's secured assets"
-    },
-    {
-      name: "THORChain Dominance",
-      component: () => import("./lib/ThorchainDominance.svelte"),
-      icon: "📊",
-      path: "dominance",
-      description: "Compare THORChain's market dominance against competitors"
-    },
-    { 
-      name: "Shop", 
-      icon: "🏪", 
-      path: "shop", 
-      description: "Browse THORChain merchandise", 
-      externalUrl: "https://shop.rune.tools" 
-    }
-  ];
-
-  const hiddenApps = [
-    {
-      name: "Rune Pool",
-      component: () => import("./lib/RunePool.svelte"),
-      icon: "🏊",
-      path: "pool",
-      description: "Explore RUNEPool and track your position"
-    }
-  ];
+  const apps = [rapidSwapsApp];
+  const hiddenApps = [];
 
   const [send, receive] = crossfade({
     duration: 400,
@@ -312,7 +70,7 @@
   });
 
   let hoveredApp = null;
-  let displayedDescription = "Welcome to RUNE Tools";
+  let displayedDescription = "Welcome to BOONE Tools";
   let descriptionTimer;
   let isTyping = true;
 
@@ -330,7 +88,7 @@
       clearTimeout(descriptionTimer);
       descriptionTimer = setTimeout(() => {
         isTyping = true;
-        displayedDescription = "Welcome to RUNE Tools";
+        displayedDescription = "Welcome to BOONE Tools";
       }, 3000);
     }
   }
@@ -343,7 +101,7 @@
       loadedComponent = null;
       isLoadingApp = true;
       selectedApp = app;
-      const newUrl = `/${app.path}${getAppParams(app)}`;
+      const newUrl = `${BASE_PATH}/${app.path}${getAppParams(app)}`;
       history.pushState(null, '', newUrl);
       menuOpen = false;
 
@@ -428,7 +186,7 @@
     // Re-check desktop app mode on navigation
     checkDesktopAppMode();
 
-    const path = window.location.pathname.slice(1).split('/')[0];
+    const path = stripBase(window.location.pathname).slice(1).split('/')[0];
     const app = [...apps, ...hiddenApps].find(a => a.path === path);
 
     // Clear old component and show loading state immediately
@@ -502,20 +260,19 @@
 
   onMount(() => {
     checkDesktopAppMode();
-    handlePopState();
+    // Always load Rapid Swaps
+    selectApp(rapidSwapsApp);
 
-    window.addEventListener('popstate', handlePopState);
     window.addEventListener('resize', handleResize);
 
     return () => {
-      window.removeEventListener('popstate', handlePopState);
       window.removeEventListener('resize', handleResize);
     };
   });
 
   afterUpdate(() => {
     if (selectedApp && selectedApp.name === "Swapper Clout") {
-      const address = window.location.pathname.split('/')[2];
+      const address = stripBase(window.location.pathname).split('/')[2];
       if (address) {
         addressParam.set(address);
       }
@@ -552,7 +309,7 @@
 
   function goHome() {
     selectedApp = null;
-    const homeUrl = isDesktopApp ? '/?source=desktop-app' : '/';
+    const homeUrl = isDesktopApp ? `${BASE_PATH}/?source=desktop-app` : `${BASE_PATH}/`;
     history.pushState(null, '', homeUrl);
     menuOpen = false;
 
@@ -670,19 +427,19 @@
   $: appRows = groupIntoRows(sortedApps, optimalColumns);
 
   $: if (selectedApp) {
-    document.title = `${selectedApp.name} - RUNE Tools`;
+    document.title = "Rapid Swaps - BOONE Tools";
   } else {
-    document.title = "RUNE Tools";
+    document.title = "Rapid Swaps - BOONE Tools";
   }
 </script>
 
 <svelte:head>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Exo:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
     body {
-      background-color: #1e1e1e;
+      background-color: #080808;
       margin: 0;
       padding: 0;
       min-height: 100vh;
@@ -699,12 +456,7 @@
       {#if !isDesktopApp}
       <div class="logo-container">
         <button class="logo-wrapper" on:click={goHome} aria-label="Go to home page">
-          {#if HOLIDAY_MODE}
-            <img src={santaLogo} alt="THORChain Holiday Logo" class="logo holiday-logo" />
-          {:else}
-            <img src={logo} alt="THORChain Logo" class="logo original-logo" />
-            <img src={laserLogo} alt="THORChain Laser Logo" class="logo laser-logo" />
-          {/if}
+          <span class="logo-text">BOONE.TOOLS</span>
         </button>
       </div>
       {:else}
@@ -721,25 +473,8 @@
       </div>
       {/if}
       <div class="title-container">
-        {#if selectedApp}
-          <h2 class="rune-tools-title">
-            {selectedApp.name}
-          </h2>
-          
-        {/if}
+        <h2 class="rune-tools-title">Rapid Swaps</h2>
       </div>
-      <nav>
-        {#if selectedApp}
-          <button 
-            class="nav-button menu-button" 
-            on:click={toggleMenu}
-            in:fly={{ y: -20, duration: 300, delay: 200, easing: cubicInOut }}
-            out:fly={{ y: -20, duration: 300, easing: cubicInOut }}
-          >
-            {@html hamburgerIcon}
-          </button>
-        {/if}
-      </nav>
     </div>
   </header>
   
@@ -747,105 +482,11 @@
     <Banner />
   {/if}
 
-  {#if menuOpen}
-    <div class="menu-overlay" role="button" tabindex="0" on:click|self={toggleMenu} on:keydown={(e) => e.key === 'Escape' && toggleMenu()} in:fade={{ duration: 200 }} out:fade={{ duration: 200 }}>
-      <div class="menu-content" in:fly={{ x: 300, duration: 300, easing: cubicInOut }} out:fly={{ x: 300, duration: 300, easing: cubicInOut }}>
-        {#each apps as app}
-          {@const isImageIcon = typeof app.icon === 'string' && (app.icon.endsWith('.svg') || app.icon.endsWith('.png'))}
-          <button class="menu-item" on:click={() => selectApp(app)}>
-            <span class="app-icon">
-              {#if isImageIcon}
-                <img src={app.icon} alt={app.name} class="menu-icon-img" />
-              {:else}
-                {app.icon}
-              {/if}
-            </span>
-            <span class="app-name">{app.name}</span>
-          </button>
-        {/each}
-      </div>
-    </div>
-  {/if}
-
-  <div class="content">
+<div class="content">
     <div class="scrollable-container">
-      {#if !selectedApp}
-        <div class="description-container">
-          {#if isMobile}
-            <p>Welcome to RUNE Tools</p>
-          {:else}
-            {#key displayedDescription}
-              <TerminalText text={displayedDescription} />
-            {/key}
-          {/if}
-        </div>
-        <div 
-          class="app-grid-container" 
-          bind:clientWidth={containerWidth}
-        >
-          {#each appRows as row}
-            <div class="app-row">
-              {#each row as app, i}
-                {@const isImageIcon = typeof app.icon === 'string' && (app.icon.endsWith('.svg') || app.icon.endsWith('.png'))}
-                {@const isStarred = $starredApps.has(app.path)}
-                <button
-                  class="app-button"
-                  class:gold-border={app.special === 'gold'}
-                  on:click={() => handleAppClick(app)}
-                  on:mouseenter={() => handleMouseEnter(app)}
-                  on:mouseleave={handleMouseLeave}
-                  in:fly={{ y: 20, duration: 300, delay: 100 + i * 50, easing: quintOut }}
-                >
-                  <span
-                    class="star-icon"
-                    class:starred={isStarred}
-                    role="button"
-                    tabindex="0"
-                    on:click={(e) => toggleStar(app, e)}
-                    on:keydown={(e) => (e.key === 'Enter' || e.key === ' ') && toggleStar(app, e)}
-                    aria-label={isStarred ? "Unstar app" : "Star app"}
-                  >
-                    {@html isStarred ? starFilledIcon : starOutlineIcon}
-                  </span>
-                  <span class="app-icon">
-                    {#if isImageIcon}
-                      <img src={app.icon} alt={app.name} />
-                    {:else}
-                      {app.icon}
-                    {/if}
-                  </span>
-                  <span class="app-name">{app.name}</span>
-                </button>
-              {/each}
-            </div>
-          {/each}
-        </div>
-      {:else}
-        {#if loadedComponent && !isLoadingApp}
-          <div in:fade={{ duration: 300, delay: 100 }} out:fade={{ duration: 150 }}>
-            <svelte:component this={loadedComponent} address={$addressParam} searchTerm={votingSearchTerm} />
-          </div>
-        {:else}
-          <div class="app-loading-skeleton" in:fade={{ duration: 200 }} out:fade={{ duration: 150 }}>
-            <div class="skeleton-logo-container">
-              <img src={logo} alt="RUNE Tools" class="skeleton-logo" />
-              <div class="skeleton-logo-bar">
-                <LoadingBar variant="custom" width="100%" height="4px" />
-              </div>
-            </div>
-            <div class="skeleton-content">
-              <div class="skeleton-card">
-                <LoadingBar variant="main" />
-                <LoadingBar variant="sub" />
-              </div>
-              <div class="skeleton-card">
-                <LoadingBar variant="main" />
-                <LoadingBar variant="sub" />
-              </div>
-            </div>
-          </div>
+        {#if loadedComponent}
+          <svelte:component this={loadedComponent} />
         {/if}
-      {/if}
     </div>
   </div>
 
@@ -856,21 +497,18 @@
 
 <style>
   :global(*) {
-    font-family: 'Exo', sans-serif;
+    font-family: 'DM Sans', -apple-system, sans-serif;
     box-sizing: border-box;
   }
 
   :root {
-    --primary-color: #ff3e00;
-    --secondary-color: #4a90e2;
-    --background-color: #1e1e1e;
-    --surface-color: #2c2c2c;
-    --text-color: #e0e0e0;
-    --text-muted: #a0a0a0;
+    --background-color: #080808;
+    --text-color: #c8c8c8;
+    --text-muted: #666;
   }
 
   main {
-    text-align: center;
+    text-align: left;
     margin: 0 auto;
     max-width: 100%;
     background-color: var(--background-color);
@@ -878,7 +516,7 @@
     display: flex;
     flex-direction: column;
     color: var(--text-color);
-    padding-top: calc(45px + var(--banner-height, 0px));
+    padding-top: calc(36px + var(--banner-height, 0px));
     position: relative;
   }
 
@@ -890,28 +528,29 @@
   }
 
   header {
-    background: rgba(44, 44, 44, 0.85);
-    backdrop-filter: blur(10px);
-    padding: 0.5rem 1rem;
+    background: #0a0a0a;
+    padding: 0 16px;
+    height: 36px;
     position: fixed;
     top: 0;
     left: 0;
     right: 0;
     z-index: 1000;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    border-bottom: 1px solid #1a1a1a;
+    display: flex;
+    align-items: center;
   }
 
   .header-content {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    max-width: 1200px;
-    margin: 0 auto;
+    width: 100%;
+    gap: 16px;
   }
 
   .logo-container {
     flex: 0 0 auto;
-    width: 33.33%;
     text-align: left;
   }
 
@@ -931,6 +570,14 @@
     max-width: 100%;
   }
 
+  .logo-text {
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 700;
+    font-size: 12px;
+    color: #888;
+    letter-spacing: 0.08em;
+  }
+
   .original-logo {
     position: relative;
     z-index: 2;
@@ -945,20 +592,17 @@
   }
 
   .title-container {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    align-items: center;
-    width: 33.33%;
+    flex: 0 0 auto;
   }
 
   .rune-tools-title {
-    color: var(--text-color);
-    font-size: 1.25rem;
-    font-weight: 600;
+    font-family: 'JetBrains Mono', monospace;
+    color: #555;
+    font-size: 11px;
+    font-weight: 500;
     margin: 0;
-    line-height: 1.2;
+    line-height: 1;
+    letter-spacing: 0.06em;
   }
 
   nav {
@@ -969,10 +613,10 @@
 
   .content {
     flex: 1;
-    padding-top: 10px;
+    padding-top: 0;
     position: relative;
     z-index: 1;
-    padding-bottom: 60px;
+    padding-bottom: 40px;
   }
 
   .scrollable-container {

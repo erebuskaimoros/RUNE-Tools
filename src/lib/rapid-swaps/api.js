@@ -95,7 +95,7 @@ export async function fetchLiveRapidSwaps() {
   const priceIndex = buildAssetUsdIndex(network, pools);
 
   return (Array.isArray(streamingSwaps) ? streamingSwaps : [])
-    .filter((swap) => Number(swap?.interval) === 0)
+    .filter((swap) => Number(swap?.interval) === 0 && Number(swap?.quantity) > 1)
     .map((swap) => {
       const inputCoin = {
         asset: swap?.source_asset || '',

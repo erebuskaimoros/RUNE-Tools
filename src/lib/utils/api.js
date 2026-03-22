@@ -21,16 +21,16 @@
  * THORNode API endpoints with fallback
  */
 export const THORNODE_ENDPOINTS = {
-  primary: 'https://thornode.thorchain.liquify.com',
-  fallback: 'https://thornode.ninerealms.com'
+  primary: 'https://thornode.thorchain.network',
+  fallback: 'https://thornode.thorchain.liquify.com'
 };
 
 /**
  * Midgard API endpoints
  */
 export const MIDGARD_ENDPOINTS = {
-  primary: 'https://midgard.ninerealms.com',
-  fallback: 'https://midgard.thorchain.info'
+  primary: 'https://midgard.thorchain.network',
+  fallback: 'https://midgard.ninerealms.com'
 };
 
 // ============================================

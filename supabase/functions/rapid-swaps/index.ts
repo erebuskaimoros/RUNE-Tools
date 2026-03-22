@@ -40,6 +40,7 @@ const RAPID_SWAP_COLUMNS = [
   'streaming_interval',
   'streaming_quantity',
   'streaming_count',
+  'blocks_used',
   'affiliate',
   'source_address',
   'destination_address'
@@ -59,7 +60,7 @@ Deno.serve(async (request) => {
     const supabase = createAdminClient();
     const recentWindowStart = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
-    const [recentResult, topResult, startResult, lastRunResult, countResult] = await Promise.all([
+    const [recentResult, topResult, startResult, lastRunResult, wsListenerResult, countResult, allVolumeResult] = await Promise.all([
       supabase
         .from('rapid_swaps')
         .select(RAPID_SWAP_COLUMNS)
@@ -86,11 +87,21 @@ Deno.serve(async (request) => {
         .limit(1)
         .maybeSingle(),
       supabase
+        .from('rapid_swap_job_runs')
+        .select('finished_at,status,stats_json')
+        .eq('job_name', 'rapid-swaps-ws-listener')
+        .order('started_at', { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      supabase
         .from('rapid_swaps')
-        .select('tx_id', { count: 'exact', head: true })
+        .select('tx_id', { count: 'exact', head: true }),
+      supabase
+        .from('rapid_swaps')
+        .select('input_estimated_usd,streaming_count,blocks_used')
     ]);
 
-    for (const result of [recentResult, topResult, startResult, lastRunResult, countResult]) {
+    for (const result of [recentResult, topResult, startResult, lastRunResult, wsListenerResult, countResult, allVolumeResult]) {
       if (result.error) {
         throw new Error(result.error.message);
       }
@@ -99,6 +110,20 @@ Deno.serve(async (request) => {
     const trackerStartedAt = startResult.data?.observed_at || null;
     const recentRows = recentResult.data || [];
     const topRows = topResult.data || [];
+    const allVolumeRows = allVolumeResult.data || [];
+    const cumulativeVolumeUsd = allVolumeRows.reduce(
+      (sum: number, row: any) => sum + (Number(row.input_estimated_usd) || 0),
+      0
+    );
+    const BLOCK_TIME_SECONDS = 6;
+    const timeSavedSeconds = allVolumeRows.reduce(
+      (sum: number, row: any) => {
+        const subs = Math.max(1, Number(row.streaming_count) || 1);
+        const blocksUsed = Math.max(1, Number(row.blocks_used) || 1);
+        return sum + Math.max(0, subs - blocksUsed) * BLOCK_TIME_SECONDS;
+      },
+      0
+    );
     const lastRunAt = lastRunResult.data?.finished_at || null;
     const freshnessSeconds = lastRunAt
       ? Math.max(0, Math.floor((Date.now() - Date.parse(lastRunAt)) / 1000))
@@ -113,6 +138,8 @@ Deno.serve(async (request) => {
           : false,
         recent_window_started_at: recentWindowStart,
         total_tracked: countResult.count || 0,
+        cumulative_volume_usd: cumulativeVolumeUsd,
+        time_saved_seconds: timeSavedSeconds,
         recent_24h_count: recentRows.length,
         recent_24h_volume_usd: recentRows.reduce((sum, row: any) => sum + (Number(row.input_estimated_usd) || 0), 0),
         top_20: topRows,
@@ -122,7 +149,15 @@ Deno.serve(async (request) => {
           last_run_status: lastRunResult.data?.status || 'unknown',
           freshness_seconds: freshnessSeconds,
           last_run_stats: lastRunResult.data?.stats_json || {}
-        }
+        },
+        ws_listener: wsListenerResult.data ? {
+          last_heartbeat: wsListenerResult.data.finished_at || null,
+          status: wsListenerResult.data.status || 'unknown',
+          stats: wsListenerResult.data.stats_json || {},
+          age_seconds: wsListenerResult.data.finished_at
+            ? Math.max(0, Math.floor((Date.now() - Date.parse(wsListenerResult.data.finished_at)) / 1000))
+            : -1
+        } : null
       },
       200,
       {

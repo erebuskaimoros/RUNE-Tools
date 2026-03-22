@@ -833,12 +833,12 @@
       <div class="disclaimers">
         <label class="disclaimer-item">
           <input type="checkbox" bind:checked={disclaimer1} />
-          <span>I understand THORChain is providing this swap service, not RUNE Tools.</span>
+          <span>I understand THORChain is providing this swap service, not BOONE Tools.</span>
         </label>
 
         <label class="disclaimer-item">
           <input type="checkbox" bind:checked={disclaimer2} />
-          <span>RUNE Tools is not responsible for any potential loss of funds.</span>
+          <span>BOONE Tools is not responsible for any potential loss of funds.</span>
         </label>
 
         <label class="disclaimer-item">

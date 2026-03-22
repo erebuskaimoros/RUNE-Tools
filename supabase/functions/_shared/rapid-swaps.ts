@@ -4,8 +4,14 @@ import {
   normalizeRapidSwapAction
 } from '../../../src/lib/rapid-swaps/model.js';
 
-const MIDGARD_ACTIONS_URL = 'https://midgard.ninerealms.com/v2/actions';
+const MIDGARD_BASES = [
+  'https://midgard.thorchain.network/v2/actions',
+  'https://midgard.liquify.com/v2/actions',
+  'https://midgard.ninerealms.com/v2/actions'
+];
 const ACTION_PAGE_LIMIT = 50;
+
+let activeMidgardIndex = 0;
 
 function isChallengeResponse(response: Response): boolean {
   const contentType = (response.headers.get('content-type') || '').toLowerCase();
@@ -23,26 +29,42 @@ async function fetchMidgardActionPage(nextPageToken = ''): Promise<{ actions: an
     params.set('nextPageToken', nextPageToken);
   }
 
-  const response = await fetch(`${MIDGARD_ACTIONS_URL}?${params.toString()}`, {
-    headers: {
-      Accept: 'application/json',
-      'x-client-id': 'RuneTools'
+  let lastError: Error | null = null;
+
+  for (let i = 0; i < MIDGARD_BASES.length; i++) {
+    const idx = (activeMidgardIndex + i) % MIDGARD_BASES.length;
+    const url = `${MIDGARD_BASES[idx]}?${params.toString()}`;
+
+    try {
+      const response = await fetch(url, {
+        headers: {
+          Accept: 'application/json',
+          'x-client-id': 'RuneTools'
+        }
+      });
+
+      if (!response.ok) {
+        lastError = new Error(`Failed to fetch Midgard actions (${response.status}) from ${MIDGARD_BASES[idx]}`);
+        continue;
+      }
+
+      if (isChallengeResponse(response)) {
+        lastError = new Error(`Midgard returned challenge response from ${MIDGARD_BASES[idx]}`);
+        continue;
+      }
+
+      activeMidgardIndex = idx;
+      const payload = await response.json();
+      return {
+        actions: Array.isArray(payload?.actions) ? payload.actions : [],
+        nextPageToken: String(payload?.meta?.nextPageToken || '')
+      };
+    } catch (err) {
+      lastError = err as Error;
     }
-  });
-
-  if (!response.ok) {
-    throw new Error(`Failed to fetch Midgard actions (${response.status})`);
   }
 
-  if (isChallengeResponse(response)) {
-    throw new Error('Midgard returned challenge response');
-  }
-
-  const payload = await response.json();
-  return {
-    actions: Array.isArray(payload?.actions) ? payload.actions : [],
-    nextPageToken: String(payload?.meta?.nextPageToken || '')
-  };
+  throw lastError || new Error('All Midgard endpoints failed');
 }
 
 export async function fetchRapidSwapRows(

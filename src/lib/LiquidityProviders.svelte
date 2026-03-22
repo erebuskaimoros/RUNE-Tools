@@ -81,9 +81,9 @@
   // Add this function to update the document title
   function updateTitle(address) {
     if (address) {
-      document.title = `${address.slice(-4)} LP - RUNE Tools`;
+      document.title = `${address.slice(-4)} LP - BOONE Tools`;
     } else {
-      document.title = 'LP Checker - RUNE Tools';
+      document.title = 'LP Checker - BOONE Tools';
     }
   }
 

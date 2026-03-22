@@ -1,6 +1,6 @@
-const THORNODE_PRIMARY = 'https://thornode.thorchain.liquify.com';
-const THORNODE_FALLBACK = 'https://thornode.ninerealms.com';
-const MIDGARD_CHURNS = 'https://midgard.ninerealms.com/v2/churns';
+const THORNODE_PRIMARY = 'https://thornode.thorchain.network';
+const THORNODE_FALLBACK = 'https://thornode.thorchain.liquify.com';
+const MIDGARD_CHURNS = 'https://midgard.thorchain.network/v2/churns';
 
 type ResponseType = 'json' | 'text';
 

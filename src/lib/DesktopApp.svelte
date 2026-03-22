@@ -337,7 +337,7 @@
 <div class="desktop-app-container">
   <div class="header-section">
     <div class="title-wrapper">
-      <h2>🖥️ RUNE Tools Desktop</h2>
+      <h2>🖥️ BOONE Tools Desktop</h2>
       <p class="subtitle">Native wallet companion app for macOS and Windows</p>
     </div>
   </div>
@@ -518,15 +518,15 @@
           </div>
           <div class="feature-card">
             <div class="feature-icon">🌐</div>
-            <div class="feature-title">Access rune.tools</div>
-            <div class="feature-desc">Access rune.tools directly from the desktop app</div>
+            <div class="feature-title">Access boone.tools</div>
+            <div class="feature-desc">Access boone.tools directly from the desktop app</div>
           </div>
         </div>
       </div>
 
       <div class="verification-section">
         <h3>🔍 Verification</h3>
-        <p class="verification-text">Verify the authenticity and security of RUNE Tools Desktop:</p>
+        <p class="verification-text">Verify the authenticity and security of BOONE Tools Desktop:</p>
         <a href="https://github.com/familiarcow/rune-tools-desktop" class="download-btn source-btn" target="_blank">
           <div class="btn-icon">
             <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor">
