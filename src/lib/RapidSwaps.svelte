@@ -1,5 +1,6 @@
 <script>
   import { onMount } from 'svelte';
+  import { createClient } from '@supabase/supabase-js';
   import { formatNumber, formatUSD, formatUSDCompact } from '$lib/utils/formatting';
   import { fromBaseUnit, normalizeAsset } from '$lib/utils/blockchain';
   import {
@@ -7,13 +8,17 @@
     getRapidSwapsApiConfigError
   } from './rapid-swaps/api.js';
 
-  const REFRESH_INTERVAL_MS = 60000;
+  const REFRESH_INTERVAL_MS = 120000; // Slower poll since realtime handles updates
+  const SUPABASE_URL = import.meta.env.VITE_RAPID_SWAPS_API_BASE || import.meta.env.VITE_NODEOP_API_BASE || '';
+  const SUPABASE_KEY = import.meta.env.VITE_RAPID_SWAPS_API_KEY || import.meta.env.VITE_NODEOP_API_KEY || '';
 
   let loading = true;
   let refreshing = false;
   let dashboard = null;
   let dashboardError = '';
   let refreshInterval;
+  let realtimeChannel = null;
+  let lastRealtimeEvent = null;
 
   $: topSwaps = dashboard?.top_20 || [];
   $: recentSwaps = dashboard?.recent_24h || [];
@@ -118,13 +123,47 @@
     refreshing = false;
   }
 
+  function setupRealtime() {
+    // The SUPABASE_URL is the functions base (e.g. https://xxx.supabase.co/functions/v1)
+    // We need the project root URL for realtime
+    const projectUrl = SUPABASE_URL.replace(/\/functions\/v1\/?$/, '');
+    if (!projectUrl || !SUPABASE_KEY) return;
+
+    try {
+      const supabase = createClient(projectUrl, SUPABASE_KEY);
+      realtimeChannel = supabase
+        .channel('rapid-swaps-live')
+        .on('postgres_changes', {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'rapid_swaps'
+        }, () => {
+          lastRealtimeEvent = Date.now();
+          loadData(false);
+        })
+        .on('postgres_changes', {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'rapid_swaps'
+        }, () => {
+          lastRealtimeEvent = Date.now();
+          loadData(false);
+        })
+        .subscribe();
+    } catch (_) {}
+  }
+
   onMount(() => {
     loadData(true);
+    setupRealtime();
     refreshInterval = setInterval(() => {
       loadData(false);
     }, REFRESH_INTERVAL_MS);
 
-    return () => clearInterval(refreshInterval);
+    return () => {
+      clearInterval(refreshInterval);
+      if (realtimeChannel) realtimeChannel.unsubscribe();
+    };
   });
 </script>
 
