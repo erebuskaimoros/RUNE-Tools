@@ -214,6 +214,18 @@ export function lookupAssetUsd(asset, priceIndex) {
     return safeNumber(priceIndex?.runePriceUsd, 0);
   }
 
+  // Trade account assets use CHAIN-ASSET format (dash instead of dot)
+  if (!asset.includes('.') && asset.includes('-')) {
+    const dotVersion = asset.replace('-', '.');
+    if (prices.has(dotVersion)) {
+      return safeNumber(prices.get(dotVersion), 0);
+    }
+    const normalizedDot = normalizeAsset(dotVersion);
+    if (prices.has(normalizedDot)) {
+      return safeNumber(prices.get(normalizedDot), 0);
+    }
+  }
+
   return 0;
 }
 

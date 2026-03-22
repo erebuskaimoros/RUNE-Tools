@@ -302,6 +302,7 @@
     <div class="metric">
       <div class="metric-val amber">{formatTimeSaved(dashboard?.time_saved_seconds || 0)}</div>
       <div class="metric-key">TIME SAVED</div>
+      <div class="metric-sub">vs interval=1 streaming</div>
     </div>
   </div>
 
@@ -540,6 +541,13 @@
     letter-spacing: 0.12em;
     color: #555;
     text-transform: uppercase;
+  }
+
+  .metric-sub {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    color: #444;
+    margin-top: 4px;
   }
 
   /* ---- DATA SECTIONS ---- */
